@@ -374,6 +374,13 @@ public:
         }
     }
 
+    void fill(iterator i, iterator e, T const & elem) {
+      SASSERT(i >= begin() && e <= end());
+      for (; i != e; ++i) {
+        *i = elem;
+      }
+    }
+
     bool contains(T const & elem) const {
         const_iterator it  = begin();
         const_iterator e = end();

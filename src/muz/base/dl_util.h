@@ -261,6 +261,7 @@ namespace datalog {
             }
             std::cout << " container size: " << n << "\n";
         }
+        // this assertion triggers if indexes are not in ascending order (MAYBE NOT EXCLUSIVELY)
         SASSERT(r_i==removed_col_cnt);
         container.resize(n-removed_col_cnt);
     }

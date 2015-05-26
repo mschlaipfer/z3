@@ -195,9 +195,49 @@ namespace datalog {
 
            Used to get input for the "project" part of join-project.
          */
+        class cost_function_pi {
+          const unsigned m_n;
+          const unsigned m_m0;
+          const unsigned m_m1;
+          const app * const m_head;
+          const app * const m_t0;
+          const app * const m_t1;
+          const unsigned_vector & m_valid_idxs_head;
+          const unsigned_vector & m_valid_idxs_tail;
+          public:
+            cost_function_pi(const app * const head, const app * const t0, const app * const t1,
+              const unsigned_vector & valid_idxs_head, const unsigned_vector & valid_idxs_tail) :
+              m_n(head->get_num_args()),
+              m_m0(t0->get_num_args()),
+              m_m1(t1->get_num_args()),
+              m_head(head),
+              m_t0(t0),
+              m_t1(t1),
+              m_valid_idxs_head(valid_idxs_head),
+              m_valid_idxs_tail(valid_idxs_tail) {
+            }
+
+            unsigned hamming(unsigned_vector & chosen_idxs) const;
+          private:
+            unsigned get_var_head(unsigned idx) const {
+              SASSERT(idx < m_n);
+              return to_var(m_head->get_arg(idx))->get_idx();
+            }
+            unsigned get_var_tail(unsigned idx) const {
+              SASSERT(idx < m_m0+m_m1);
+              if (idx < m_m0)
+                return to_var(m_t0->get_arg(idx))->get_idx();
+              else
+                return to_var(m_t1->get_arg(idx - m_m0))->get_idx();
+            }
+        };
+
         void get_local_indexes_for_projection(rule * r, unsigned_vector & res);
-        void get_local_indexes_for_projection(app * t, var_counter & globals, unsigned ofs, 
-            unsigned_vector & res);
+        void get_candidates_for_projection(app * t, var_counter & globals, unsigned ofs,
+          unsigned_vector & valid_idxs, int2ints & candidate_idxs);
+        void get_local_indexes_for_projection(const int2ints & candidate_idxs,
+          const int2int & ks, const unsigned_vector& keys, const cost_function_pi & cf, 
+          unsigned_vector & res, unsigned rec_limit);
 
         /**
            \brief Into \c acc add instructions that will add new facts following from the rule into 

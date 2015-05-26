@@ -18,6 +18,7 @@ Revision History:
 --*/
 
 
+#include <algorithm>
 #include <sstream>
 #include"ref_vector.h"
 #include"dl_context.h"
@@ -396,24 +397,109 @@ namespace datalog {
         result=curr;
     }
 
-    void compiler::get_local_indexes_for_projection(app * t, var_counter & globals, unsigned ofs, 
-            unsigned_vector & res) {
-        // TODO: this can be optimized to avoid renames in some cases
+    unsigned compiler::cost_function_pi::hamming(unsigned_vector & chosen_idxs) const {
+      unsigned distance = 0;
+      unsigned_vector::const_iterator ithead = m_valid_idxs_head.begin(), itheadend = m_valid_idxs_head.end();
+      unsigned_vector::const_iterator ittail = m_valid_idxs_tail.begin(), ittailend = m_valid_idxs_tail.end();
+      // ittail advances always, ithead only sometimes
+      for (; ithead != itheadend && ittail != ittailend; ++ittail) {
+        // Overhead for achieving O(1) lookup here not worthwhile
+        if (!chosen_idxs.contains(*ittail)) {
+          if (get_var_head(*ithead) != get_var_tail(*ittail)) {
+            ++distance;
+          }
+          ++ithead;
+        }
+      }
+      return distance;
+    }
+
+    // TODO cache?
+    // recursion depth and loop iterations limited
+    // doing combination_limit^rec_limit times more work than greedily picking indexes
+    void compiler::get_local_indexes_for_projection(const int2ints & candidate_idxs,
+      const int2int & ks, const unsigned_vector& keys, const cost_function_pi & cf,
+      unsigned_vector& res, unsigned rec_limit = 1) {
+
+      typedef struct {
+        unsigned var_idx;
+        unsigned_vector chosen_idxs;
+      } scope;
+      vector<scope> dfs_stack;
+      dfs_stack.push_back({0, unsigned_vector()});
+      
+      unsigned best_cost = UINT_MAX;
+      while (!dfs_stack.empty()) {
+        scope curr = dfs_stack.back();
+        dfs_stack.pop_back();
+        if(curr.var_idx >= keys.size()) {
+          unsigned curr_cost = cf.hamming(curr.chosen_idxs);
+          if (curr_cost < best_cost) {
+            best_cost = curr_cost;
+            res = curr.chosen_idxs;
+          }
+          if (curr_cost == 0)
+            return;
+
+          continue;
+        }
+
+        unsigned var = keys[curr.var_idx];
+
+        unsigned combination_limit = 1;
+        if (curr.var_idx < rec_limit)
+          combination_limit = UINT_MAX; // XXX limit this in general?
+
+        unsigned n = candidate_idxs[var].size();
+        svector<bool> index_bits(n);
+        index_bits.fill(index_bits.begin() + ks[var], index_bits.end(), true);
+        unsigned combination_count = 0;
+        do {
+          ++combination_count;
+          unsigned_vector chosen_idxs_rec = curr.chosen_idxs; // copy
+          // add current combination
+          for (unsigned i = 0; i < n; ++i) {
+            if (!index_bits[i]) {
+              chosen_idxs_rec.push_back(candidate_idxs[var][i]);
+            }
+          }
+          dfs_stack.push_back({curr.var_idx + 1, chosen_idxs_rec});
+        } while (combination_count < combination_limit && 
+          std::next_permutation(index_bits.begin(), index_bits.end()));
+      }
+    }
+
+    void compiler::get_candidates_for_projection(app * t, var_counter & globals, unsigned ofs, 
+            unsigned_vector & valid_idxs, int2ints & candidate_idxs) {
         unsigned n = t->get_num_args();
         for(unsigned i = 0; i<n; i++) {
             expr * e = t->get_arg(i);
-            if (is_var(e) && globals.get(to_var(e)->get_idx()) > 0) {
-              globals.update(to_var(e)->get_idx(), -1);
-              res.push_back(i + ofs);
+            if (is_var(e)) {
+              unsigned v = to_var(e)->get_idx();
+              if (globals.get(to_var(e)->get_idx()) > 0) {
+                int2ints::entry * e = candidate_idxs.insert_if_not_there2(v, unsigned_vector());
+                e->get_data().m_value.push_back(i + ofs);
+              }
+              valid_idxs.push_back(i + ofs);
             }
         }
     }
+
 
     void compiler::get_local_indexes_for_projection(rule * r, unsigned_vector & res) {
         SASSERT(r->get_positive_tail_size()==2);
         rule_counter counter;
         // leave one column copy per var in the head (avoids later duplication)
-        counter.count_vars(r->get_head(), -1);
+        app * head = r->get_head();
+        counter.count_vars(head, -1);
+
+        unsigned_vector valid_idxs_head;
+        for (unsigned i = 0; i<head->get_num_args(); i++) {
+          expr * e = head->get_arg(i);
+          if (is_var(e)) {
+            valid_idxs_head.push_back(i);
+          }
+        }
 
         // take interp & neg preds into account (at least 1 column copy if referenced)
         unsigned n = r->get_tail_size();
@@ -425,19 +511,36 @@ namespace datalog {
 
           rule_counter::iterator I = counter_tail.begin(), E = counter_tail.end();
           for (; I != E; ++I) {
-            int& n = counter.get(I->m_key);
-            if (n == 0)
-              n = -1;
+            int& var_count = counter.get(I->m_key);
+            if (var_count == 0)
+              var_count = -1;
           }
         }
 
-        app * t1 = r->get_tail(0);
-        app * t2 = r->get_tail(1);
+        app * t0 = r->get_tail(0);
+        app * t1 = r->get_tail(1);
+        counter.count_vars(t0);
         counter.count_vars(t1);
-        counter.count_vars(t2);
 
-        get_local_indexes_for_projection(t1, counter, 0, res);
-        get_local_indexes_for_projection(t2, counter, t1->get_num_args(), res);
+        unsigned_vector valid_idxs_tail;
+        int2ints candidate_idxs;
+        get_candidates_for_projection(t0, counter, 0, valid_idxs_tail, candidate_idxs);
+        get_candidates_for_projection(t1, counter, t0->get_num_args(), valid_idxs_tail, candidate_idxs);
+        
+        // compute combinations (n choose k)
+        int2int ks;
+        unsigned_vector keys;
+        int2ints::iterator it = candidate_idxs.begin(), end = candidate_idxs.end();
+        for (; it != end; ++it) {
+          keys.push_back(it->m_key);
+          ks.insert(it->m_key, counter.get(it->m_key));
+        }
+
+        get_local_indexes_for_projection(candidate_idxs, ks, keys,
+          cost_function_pi(head, t0, t1, valid_idxs_head, valid_idxs_tail), res);
+
+        // project_out_vector_columns expects the indexes in ascending order
+        std::sort(res.begin(), res.end());
     }
 
     void compiler::compile_rule_evaluation_run(rule * r, reg_idx head_reg, const reg_idx * tail_regs, 
@@ -476,6 +579,7 @@ namespace datalog {
             variable_intersection a1a2(m_context.get_manager());
             a1a2.populate(a1,a2);
 
+            // TODO only do this if a1a2 is non-empty?
             unsigned_vector removed_cols;
             get_local_indexes_for_projection(r, removed_cols);
 
@@ -1324,7 +1428,7 @@ namespace datalog {
 
         acc.set_observer(0);
 
-        TRACE("dl", execution_code.display(execution_context(m_context), tout););
+        TRACE("dl_code", execution_code.display(execution_context(m_context), tout););
     }
 
 
