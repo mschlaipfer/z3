@@ -241,6 +241,7 @@ namespace datalog {
 
     template<class T>
     void project_out_vector_columns(T & container, unsigned removed_col_cnt, const unsigned * removed_cols) {
+        SASSERT(std::is_sorted(removed_cols, removed_cols + removed_col_cnt));
         if(removed_col_cnt==0) {
             return;
         }
@@ -261,7 +262,6 @@ namespace datalog {
             }
             std::cout << " container size: " << n << "\n";
         }
-        // this assertion triggers if indexes are not in ascending order (MAYBE NOT EXCLUSIVELY)
         SASSERT(r_i==removed_col_cnt);
         container.resize(n-removed_col_cnt);
     }
