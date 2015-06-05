@@ -358,6 +358,76 @@ namespace datalog {
         return alloc(instr_while_loop, control_reg_cnt, control_regs, body);
     }
 
+    class instr_multiary_join : public instruction {
+      typedef unsigned_vector column_vector;
+      reg_idx m_res;
+    public:
+      instr_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
+        const vector<variable_intersection> & join_vars, reg_idx result)
+        : m_res(result) {}
+      virtual bool perform(execution_context & ctx) {
+        /* TODO
+        log_verbose(ctx);
+        ++ctx.m_stats.m_join;
+        if (!ctx.reg(m_rel1) || !ctx.reg(m_rel2)) {
+          ctx.make_empty(m_res);
+          return true;
+        }
+        relation_join_fn * fn;
+        const relation_base & r1 = *ctx.reg(m_rel1);
+        const relation_base & r2 = *ctx.reg(m_rel2);
+        if (!find_fn(r1, r2, fn)) {
+          fn = r1.get_manager().mk_join_fn(r1, r2, m_cols1, m_cols2);
+          if (!fn) {
+            throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
+              r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
+          }
+          store_fn(r1, r2, fn);
+        }
+
+        TRACE("dl",
+          r1.get_signature().output(ctx.get_rel_context().get_manager(), tout);
+        tout << ":" << r1.get_size_estimate_rows() << " x ";
+        r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
+        tout << ":" << r2.get_size_estimate_rows() << " ->\n";);
+
+        ctx.set_reg(m_res, (*fn)(r1, r2));
+
+        TRACE("dl",
+          ctx.reg(m_res)->get_signature().output(ctx.get_rel_context().get_manager(), tout);
+        tout << ":" << ctx.reg(m_res)->get_size_estimate_rows() << "\n";);
+
+        if (ctx.reg(m_res)->fast_empty()) {
+          ctx.make_empty(m_res);
+        }
+        return true;
+        */
+        return true;
+      }
+      virtual void make_annotations(execution_context & ctx) {
+        /*
+        std::string a1 = "rel1", a2 = "rel2";
+        ctx.get_register_annotation(m_rel1, a1);
+        ctx.get_register_annotation(m_rel1, a1);
+        ctx.set_register_annotation(m_res, "join " + a1 + " " + a2);
+        */
+      }
+      virtual void display_head_impl(execution_context const & ctx, std::ostream & out) const {
+        /*
+        out << "join " << m_rel1;
+        print_container(m_cols1, out);
+        out << " and " << m_rel2;
+        print_container(m_cols2, out);
+        out << " into " << m_res;
+        */
+      }
+    };
+
+    instruction * instruction::mk_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
+      const vector<variable_intersection> & join_vars, reg_idx result) {
+      return alloc(instr_multiary_join, tail_regs, pt_len, join_vars, result);
+    }
+
 
     class instr_join : public instruction {
         typedef unsigned_vector column_vector;
@@ -809,6 +879,80 @@ namespace datalog {
         return alloc(instr_project_rename, false, src, cycle_len, permutation_cycle, tgt);
     }
 
+    /* TODO
+    class instr_multiary_join_project : public instruction {
+      typedef unsigned_vector column_vector;
+      reg_idx m_rel1;
+      reg_idx m_rel2;
+      column_vector m_cols1;
+      column_vector m_cols2;
+      column_vector m_removed_cols;
+      reg_idx m_res;
+    public:
+      instr_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt, const unsigned * cols1,
+        const unsigned * cols2, unsigned removed_col_cnt, const unsigned * removed_cols, reg_idx result)
+        : m_rel1(rel1), m_rel2(rel2), m_cols1(joined_col_cnt, cols1),
+        m_cols2(joined_col_cnt, cols2), m_removed_cols(removed_col_cnt, removed_cols), m_res(result) {
+      }
+      virtual bool perform(execution_context & ctx) {
+        log_verbose(ctx);
+        if (!ctx.reg(m_rel1) || !ctx.reg(m_rel2)) {
+          ctx.make_empty(m_res);
+          return true;
+        }
+        ++ctx.m_stats.m_join_project;
+        relation_join_fn * fn;
+        const relation_base & r1 = *ctx.reg(m_rel1);
+        const relation_base & r2 = *ctx.reg(m_rel2);
+        if (!find_fn(r1, r2, fn)) {
+          fn = r1.get_manager().mk_join_project_fn(r1, r2, m_cols1, m_cols2, m_removed_cols);
+          if (!fn) {
+            throw default_exception("trying to perform unsupported join-project operation on relations of kinds %s and %s",
+              r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
+          }
+          store_fn(r1, r2, fn);
+        }
+        TRACE("dl", tout << r1.get_size_estimate_rows() << " x " << r2.get_size_estimate_rows() << " jp->\n";);
+        ctx.set_reg(m_res, (*fn)(r1, r2));
+        TRACE("dl", tout << ctx.reg(m_res)->get_size_estimate_rows() << "\n";);
+        if (ctx.reg(m_res)->fast_empty()) {
+          ctx.make_empty(m_res);
+        }
+        return true;
+      }
+      virtual void display_head_impl(execution_context const& ctx, std::ostream & out) const {
+        relation_base const* r1 = ctx.reg(m_rel1);
+        relation_base const* r2 = ctx.reg(m_rel2);
+        out << "join_project " << m_rel1;
+        if (r1) {
+          out << ":" << r1->num_columns();
+          out << "-" << r1->get_size_estimate_rows();
+        }
+        print_container(m_cols1, out);
+        out << " and " << m_rel2;
+        if (r2) {
+          out << ":" << r2->num_columns();
+          out << "-" << r2->get_size_estimate_rows();
+        }
+        print_container(m_cols2, out);
+        out << " into " << m_res << " removing columns ";
+        print_container(m_removed_cols, out);
+      }
+      virtual void make_annotations(execution_context & ctx) {
+        std::string s1 = "rel1", s2 = "rel2";
+        ctx.get_register_annotation(m_rel1, s1);
+        ctx.get_register_annotation(m_rel2, s2);
+        ctx.set_register_annotation(m_res, "join project " + s1 + " " + s2);
+      }
+    };
+
+    instruction * instruction::mk_multiary_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt,
+      const unsigned * cols1, const unsigned * cols2, unsigned removed_col_cnt,
+      const unsigned * removed_cols, reg_idx result) {
+      return alloc(instr_multiary_join_project, rel1, rel2, joined_col_cnt, cols1, cols2, removed_col_cnt,
+        removed_cols, result);
+    }
+    */
 
     class instr_join_project : public instruction {
         typedef unsigned_vector column_vector;

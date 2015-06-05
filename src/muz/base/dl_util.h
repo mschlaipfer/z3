@@ -144,9 +144,9 @@ namespace datalog {
         app_ref_vector   m_consts;
 
         static unsigned expr_cont_get_size(app * a) { return a->get_num_args(); }
-        static expr * expr_cont_get(app * a, unsigned i) { return a->get_arg(i); }
         static unsigned expr_cont_get_size(const ptr_vector<expr> & v) { return v.size(); }
         static unsigned expr_cont_get_size(const expr_ref_vector & v) { return v.size(); }
+        static expr * expr_cont_get(app * a, unsigned i) { return a->get_arg(i); }
         static expr * expr_cont_get(const ptr_vector<expr> & v, unsigned i) { return v[i]; }
         static expr * expr_cont_get(const expr_ref_vector & v, unsigned i) { return v[i]; }
     public:

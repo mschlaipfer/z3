@@ -108,6 +108,7 @@ namespace datalog {
                 return true;*/
             }
 
+            // TODO cols1 and cols2 unused
             /**
                \brief Into \c result assign signature of result of join of relations with signatures \c s1 
                and \c s2.
@@ -132,6 +133,18 @@ namespace datalog {
 #endif
             }
 
+            static void from_multiary_join(const vector<signature> & sigs, signature & result) {
+              result.reset();
+
+              vector<signature>::const_iterator it = sigs.begin(), end = sigs.end();
+              for (; it != end; ++it) {
+                const signature & sig = *it;
+                for (unsigned i = 0; i < sig.size(); i++) {
+                  result.push_back(sig[i]);
+                }
+              }
+            }
+
             /**
                \brief Into \c result assign signature projected from \c src.
 
@@ -150,6 +163,21 @@ namespace datalog {
                 from_join(s1, s2, joined_col_cnt, cols1, cols2, aux);
                 from_project(aux, removed_col_cnt, removed_cols, result);
             }
+
+            /* TODO
+            static void from_multiary_join_project(const vector<const signature &> & sigs, unsigned col_cnt,
+              signature & result) {
+              result.reset();
+
+              vector<const signature &>::const_iterator it = sigs.begin(), end = sigs.end();
+              for (; it != end; ++it) {
+                const signature & sig = *it;
+                for (unsigned i = 0; i < sig.size(); i++) {
+                  result.push_back(sig[i]);
+                }
+              }
+            }
+            */
 
             /**
                \brief Into \c result assign signature \c src with reordered columns.

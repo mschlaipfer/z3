@@ -152,6 +152,12 @@ namespace datalog {
             const unsigned_vector & removed_cols, reg_idx & result, bool reuse, instruction_block & acc);
         void make_select_equal_and_project(reg_idx src, const relation_element val, unsigned col,
             reg_idx & result, bool reuse, instruction_block & acc);
+
+        void make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, const vector<variable_intersection> & vars,
+          reg_idx & result, bool reuse_t1, instruction_block & acc);
+        void make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
+          const vector<variable_intersection> & vars, const vector<unsigned_vector> & removed_cols,
+          reg_idx & result, bool reuse_t1, instruction_block & acc);
         /**
            \brief Create add an union or widen operation and put it into \c acc.
         */
@@ -198,6 +204,14 @@ namespace datalog {
         void get_local_indexes_for_projection(rule * r, unsigned_vector & res);
         void get_local_indexes_for_projection(app * t, var_counter & globals, unsigned ofs, 
             unsigned_vector & res);
+        void get_local_indexes_for_projection(rule * r, const expr_ref_vector & intm_result,
+          unsigned tail_offset, unsigned_vector & res);
+        void get_local_indexes_for_projection(const expr_ref_vector & t, var_counter & globals,
+          unsigned_vector & res);
+
+        void compile_join_project(rule * r, const reg_idx * tail_regs, const ast_manager & m,
+          unsigned pt_len, reg_idx & single_res, expr_ref_vector & single_res_expr, bool & dealloc,
+          unsigned & second_tail_arg_ofs, instruction_block & acc);
 
         /**
            \brief Into \c acc add instructions that will add new facts following from the rule into 

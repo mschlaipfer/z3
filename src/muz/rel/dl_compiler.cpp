@@ -27,6 +27,7 @@ Revision History:
 #include"dl_compiler.h"
 #include"ast_pp.h"
 #include"ast_smt2_pp.h"
+#include<algorithm>
 
 
 namespace datalog {
@@ -47,6 +48,38 @@ namespace datalog {
         e->get_data().m_value=reg;
 
         acc.push_back(instruction::mk_load(m_context.get_manager(), pred, reg));
+    }
+
+    // TODO
+    void compiler::make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, const vector<variable_intersection> & vars, reg_idx & result,
+      bool reuse_t1, instruction_block & acc) {
+      relation_signature res_sig;
+      vector<relation_signature> sigs;
+      for (unsigned i = 0; i < pt_len; ++i) {
+        sigs.push_back(m_reg_signatures[tail_regs[i]]);
+      }
+      relation_signature::from_multiary_join(sigs, res_sig);
+      result = get_register(res_sig, reuse_t1, tail_regs[0]); // was t1. why not t2? arbitrary?
+      acc.push_back(instruction::mk_multiary_join(tail_regs, pt_len, vars, result));
+    }
+
+    // TODO
+    void compiler::make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
+      const vector<variable_intersection> & vars, const vector<unsigned_vector> & removed_cols,
+      reg_idx & result, bool reuse_t1, instruction_block & acc) {
+      /*
+      relation_signature aux_sig;
+      relation_signature sig1 = m_reg_signatures[t1];
+      relation_signature sig2 = m_reg_signatures[t2];
+      relation_signature::from_join(sig1, sig2, vars.size(), vars.get_cols1(), vars.get_cols2(), aux_sig);
+      relation_signature res_sig;
+      relation_signature::from_project(aux_sig, removed_cols.size(), removed_cols.c_ptr(),
+        res_sig);
+      result = get_register(res_sig, reuse_t1, t1);
+
+      acc.push_back(instruction::mk_join_project(t1, t2, vars.size(), vars.get_cols1(),
+        vars.get_cols2(), removed_cols.size(), removed_cols.c_ptr(), result));
+      */
     }
 
     void compiler::make_join(reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result, 
@@ -396,6 +429,19 @@ namespace datalog {
         result=curr;
     }
 
+    void compiler::get_local_indexes_for_projection(const expr_ref_vector & t, var_counter & globals,
+      unsigned_vector & res) {
+      // TODO: this can be optimized to avoid renames in some cases
+      unsigned n = t.size();
+      for (unsigned i = 0; i<n; i++) {
+        expr * e = t.get(i);
+        if (is_var(e) && globals.get(to_var(e)->get_idx()) > 0) {
+          globals.update(to_var(e)->get_idx(), -1);
+          res.push_back(i);
+        }
+      }
+    }
+
     void compiler::get_local_indexes_for_projection(app * t, var_counter & globals, unsigned ofs, 
             unsigned_vector & res) {
         // TODO: this can be optimized to avoid renames in some cases
@@ -407,6 +453,37 @@ namespace datalog {
               res.push_back(i + ofs);
             }
         }
+    }    
+    
+    // TODO counting tail O(n^2) times overall
+    void compiler::get_local_indexes_for_projection(rule * r, const expr_ref_vector & intm_result,
+      unsigned tail_offset, unsigned_vector & res) {
+      rule_counter counter;
+      // leave one column copy per var in the head (avoids later duplication)
+      counter.count_vars(r->get_head(), -1);
+
+      // take rest of positive tail, interp & neg preds into account (at least 1 column copy if referenced)
+      unsigned n = r->get_tail_size();
+      if (n > tail_offset) {
+        rule_counter counter_tail;
+        for (unsigned i = tail_offset; i < n; ++i) {
+          counter_tail.count_vars(r->get_tail(i));
+        }
+
+        rule_counter::iterator I = counter_tail.begin(), E = counter_tail.end();
+        for (; I != E; ++I) {
+          int& n = counter.get(I->m_key);
+          if (n == 0)
+            n = -1;
+        }
+      }
+
+      app * t2 = r->get_tail(tail_offset-1);
+      counter.count_vars(intm_result);
+      counter.count_vars(t2);
+
+      get_local_indexes_for_projection(intm_result, counter, res);
+      get_local_indexes_for_projection(t2, counter, intm_result.size(), res);
     }
 
     void compiler::get_local_indexes_for_projection(rule * r, unsigned_vector & res) {
@@ -415,7 +492,7 @@ namespace datalog {
         // leave one column copy per var in the head (avoids later duplication)
         counter.count_vars(r->get_head(), -1);
 
-        // take interp & neg preds into account (at least 1 column copy if referenced)
+        // take rest of positive tail, interp & neg preds into account (at least 1 column copy if referenced)
         unsigned n = r->get_tail_size();
         if (n > 2) {
           rule_counter counter_tail;
@@ -440,6 +517,145 @@ namespace datalog {
         get_local_indexes_for_projection(t2, counter, t1->get_num_args(), res);
     }
 
+    void compiler::compile_join_project(rule * r, const reg_idx * tail_regs, const ast_manager & m, 
+        unsigned pt_len, reg_idx & single_res, expr_ref_vector & single_res_expr, bool & dealloc,
+        unsigned & second_tail_arg_ofs, instruction_block & acc) {
+
+      if (pt_len > 2) { // XXX also works for pt_len==2, but we have faster special case
+        // TODO vectors of references?
+        vector<unsigned_vector> removed_cols;
+        vector<variable_intersection> join_cols;
+        bool no_projection = true;
+        // initialize intermediate result with first 
+        expr_ref_vector intm_result(m_context.get_manager());
+        for (unsigned i = 0; i < r->get_tail(0)->get_num_args(); ++i) {
+          intm_result.push_back(r->get_tail(0)->get_arg(i));
+        }
+        for (unsigned i = 1; i < pt_len; ++i) {
+          //reg_idx t1_reg = intm_reg;
+          //reg_idx t2_reg = tail_regs[i];
+          app * a2 = r->get_tail(i);
+          //SASSERT(m_reg_signatures[t1_reg].size() == a1->size());
+          //SASSERT(m_reg_signatures[t2_reg].size() == a2->get_num_args());
+
+          variable_intersection a1a2(m_context.get_manager());
+          a1a2.populate(intm_result, a2);
+
+          unsigned_vector curr_removed_cols;
+          get_local_indexes_for_projection(r, intm_result, i, curr_removed_cols); // TODO offsets
+          no_projection &= curr_removed_cols.empty();
+          
+          // XXX copying here
+          join_cols.push_back(a1a2);
+          removed_cols.push_back(curr_removed_cols);
+
+          // TODO update intermediate result
+          unsigned rem_index = 0;
+          unsigned rem_sz = curr_removed_cols.size();
+          unsigned intm_result_len = intm_result.size();
+          for (unsigned i = 0; i < intm_result_len; i++) {
+            SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= i);
+            if (rem_index < rem_sz && curr_removed_cols[rem_index] == i) {
+              rem_index++;
+              continue;
+            }
+            intm_result.push_back(intm_result.get(i));
+          }
+          second_tail_arg_ofs = intm_result.size();
+          unsigned a2len = a2->get_num_args();
+          for (unsigned i = 0; i < a2len; i++) {
+            SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= i + intm_result_len);
+            if (rem_index < rem_sz && curr_removed_cols[rem_index] == i + intm_result_len) {
+              rem_index++;
+              continue;
+            }
+            intm_result.push_back(a2->get_arg(i));
+          }
+          SASSERT(rem_index == rem_sz);
+        }
+        if (no_projection) {
+          make_multiary_join(tail_regs, pt_len, join_cols, single_res, false, acc);
+        } else {
+          make_multiary_join_project(tail_regs, pt_len, join_cols, removed_cols, single_res, false, acc);
+        }
+        // TODO copy constr? single_res_expr = intm_result;
+      }
+      else if (pt_len == 2) {
+        reg_idx t1_reg = tail_regs[0];
+        reg_idx t2_reg = tail_regs[1];
+        app * a1 = r->get_tail(0);
+        app * a2 = r->get_tail(1);
+        SASSERT(m_reg_signatures[t1_reg].size() == a1->get_num_args());
+        SASSERT(m_reg_signatures[t2_reg].size() == a2->get_num_args());
+
+        variable_intersection a1a2(m_context.get_manager());
+        a1a2.populate(a1, a2);
+
+        unsigned_vector removed_cols;
+        get_local_indexes_for_projection(r, removed_cols);
+
+        if (removed_cols.empty()) {
+          make_join(t1_reg, t2_reg, a1a2, single_res, false, acc);
+        }
+        else {
+          make_join_project(t1_reg, t2_reg, a1a2, removed_cols, single_res, false, acc);
+        }
+
+        unsigned rem_index = 0;
+        unsigned rem_sz = removed_cols.size();
+        unsigned a1len = a1->get_num_args();
+        for (unsigned i = 0; i<a1len; i++) {
+          SASSERT(rem_index == rem_sz || removed_cols[rem_index] >= i);
+          if (rem_index<rem_sz && removed_cols[rem_index] == i) {
+            rem_index++;
+            continue;
+          }
+          single_res_expr.push_back(a1->get_arg(i));
+        }
+        second_tail_arg_ofs = single_res_expr.size();
+        unsigned a2len = a2->get_num_args();
+        for (unsigned i = 0; i<a2len; i++) {
+          SASSERT(rem_index == rem_sz || removed_cols[rem_index] >= i + a1len);
+          if (rem_index<rem_sz && removed_cols[rem_index] == i + a1len) {
+            rem_index++;
+            continue;
+          }
+          single_res_expr.push_back(a2->get_arg(i));
+        }
+        SASSERT(rem_index == rem_sz);
+      }
+      else if (pt_len == 1) {
+        app * a = r->get_tail(0);
+        single_res = tail_regs[0];
+        dealloc = false;
+
+        SASSERT(m_reg_signatures[single_res].size() == a->get_num_args());
+
+        unsigned n = a->get_num_args();
+        for (unsigned i = 0; i<n; i++) {
+          expr * arg = a->get_arg(i);
+          if (is_app(arg)) {
+            app * c = to_app(arg); //argument is a constant
+            SASSERT(m.is_value(c));
+            make_select_equal_and_project(single_res, c, single_res_expr.size(), single_res, dealloc, acc);
+            dealloc = true;
+          }
+          else {
+            SASSERT(is_var(arg));
+            single_res_expr.push_back(arg);
+          }
+        }
+
+      }
+      else {
+        SASSERT(pt_len == 0);
+
+        //single_res register should never be used in this case
+        single_res = execution_context::void_register;
+        dealloc = false;
+      }
+    }
+
     void compiler::compile_rule_evaluation_run(rule * r, reg_idx head_reg, const reg_idx * tail_regs, 
             reg_idx delta_reg, bool use_widening, instruction_block & acc) {
         
@@ -453,7 +669,6 @@ namespace datalog {
         TRACE("dl", r->display(m_context, tout); );
 
         unsigned pt_len = r->get_positive_tail_size();
-        SASSERT(pt_len<=2); //we require rules to be processed by the mk_simple_joins rule transformer plugin
 
         reg_idx single_res;
         expr_ref_vector single_res_expr(m);
@@ -465,80 +680,12 @@ namespace datalog {
         // whether to dealloc the previous result
         bool dealloc = true;
 
-        if(pt_len == 2) {
-            reg_idx t1_reg=tail_regs[0];
-            reg_idx t2_reg=tail_regs[1];
-            app * a1 = r->get_tail(0);
-            app * a2 = r->get_tail(1);
-            SASSERT(m_reg_signatures[t1_reg].size()==a1->get_num_args());
-            SASSERT(m_reg_signatures[t2_reg].size()==a2->get_num_args());
-
-            variable_intersection a1a2(m_context.get_manager());
-            a1a2.populate(a1,a2);
-
-            unsigned_vector removed_cols;
-            get_local_indexes_for_projection(r, removed_cols);
-
-            if(removed_cols.empty()) {
-                make_join(t1_reg, t2_reg, a1a2, single_res, false, acc);
-            }
-            else {
-                make_join_project(t1_reg, t2_reg, a1a2, removed_cols, single_res, false, acc);
-            }
-
-            unsigned rem_index = 0;
-            unsigned rem_sz = removed_cols.size();
-            unsigned a1len=a1->get_num_args();
-            for(unsigned i=0; i<a1len; i++) {
-                SASSERT(rem_index==rem_sz || removed_cols[rem_index]>=i);
-                if(rem_index<rem_sz && removed_cols[rem_index]==i) {
-                    rem_index++;
-                    continue;
-                }
-                single_res_expr.push_back(a1->get_arg(i));
-            }
-            second_tail_arg_ofs = single_res_expr.size();
-            unsigned a2len=a2->get_num_args();
-            for(unsigned i=0; i<a2len; i++) {
-                SASSERT(rem_index==rem_sz || removed_cols[rem_index]>=i+a1len);
-                if(rem_index<rem_sz && removed_cols[rem_index]==i+a1len) {
-                    rem_index++;
-                    continue;
-                }
-                single_res_expr.push_back(a2->get_arg(i));
-            }
-            SASSERT(rem_index==rem_sz);
-        }
-        else if(pt_len==1) {
-            app * a = r->get_tail(0);
-            single_res = tail_regs[0];
-            dealloc = false;
-
-            SASSERT(m_reg_signatures[single_res].size() == a->get_num_args());
-
-            unsigned n=a->get_num_args();
-            for(unsigned i=0; i<n; i++) {
-                expr * arg = a->get_arg(i);
-                if(is_app(arg)) {
-                    app * c = to_app(arg); //argument is a constant
-                    SASSERT(m.is_value(c));
-                    make_select_equal_and_project(single_res, c, single_res_expr.size(), single_res, dealloc, acc);
-                    dealloc = true;
-                }
-                else {
-                    SASSERT(is_var(arg));
-                    single_res_expr.push_back(arg);
-                }
-            }
-
-        }
-        else {
-            SASSERT(pt_len==0);
-
-            //single_res register should never be used in this case
-            single_res=execution_context::void_register;
-            dealloc = false;
-        }
+        // TODO
+        // repeat i = 1 to n:
+        //   compute intersection of variables in res(int(tail[i-1]), tail[i] taking into account projection in step i-1
+        //   compute variables to project
+        // make multi-artiy join/join_project operation
+        compile_join_project(r, tail_regs, m, pt_len, single_res, single_res_expr, dealloc, second_tail_arg_ofs, acc);
 
         add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, acc);
 
@@ -579,6 +726,7 @@ namespace datalog {
                 continue;
             }
             SASSERT(indexes.size()>1);
+            // TODO understand second_tail_arg_ofs
             if(pt_len==2 && indexes[0]<second_tail_arg_ofs && indexes.back()>=second_tail_arg_ofs) {
                 //If variable appears in multiple tails, the identicity will already be enforced by join.
                 //(If behavior the join changes so that it is not enforced anymore, remove this
@@ -1324,7 +1472,7 @@ namespace datalog {
 
         acc.set_observer(0);
 
-        TRACE("dl", execution_code.display(execution_context(m_context), tout););
+        TRACE("dl_code", execution_code.display(execution_context(m_context), tout););
     }
 
 
