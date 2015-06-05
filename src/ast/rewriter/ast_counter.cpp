@@ -86,6 +86,19 @@ int counter::get_max_counter_value() const {
     return res;
 }
 
+void var_counter::count_vars(const expr_ref_vector & pred, int coef) {
+  unsigned n = pred.size();
+  for (unsigned i = 0; i < n; i++) {
+    m_fv(pred.get(i));
+    for (unsigned j = 0; j < m_fv.size(); ++j) {
+      if (m_fv[j]) {
+        update(j, coef);
+      }
+    }
+  }
+  m_fv.reset();
+}
+
 void var_counter::count_vars(const app * pred, int coef) {
     unsigned n = pred->get_num_args();
     for (unsigned i = 0; i < n; i++) {
