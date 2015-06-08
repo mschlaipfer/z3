@@ -50,36 +50,54 @@ namespace datalog {
         acc.push_back(instruction::mk_load(m_context.get_manager(), pred, reg));
     }
 
-    // TODO
-    void compiler::make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, const vector<variable_intersection> & vars, reg_idx & result,
-      bool reuse_t1, instruction_block & acc) {
-      relation_signature res_sig;
-      vector<relation_signature> sigs;
-      for (unsigned i = 0; i < pt_len; ++i) {
-        sigs.push_back(m_reg_signatures[tail_regs[i]]);
-      }
-      relation_signature::from_multiary_join(sigs, res_sig);
-      result = get_register(res_sig, reuse_t1, tail_regs[0]); // was t1. why not t2? arbitrary?
-      acc.push_back(instruction::mk_multiary_join(tail_regs, pt_len, vars, result));
+    void compiler::make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, 
+      const vector<variable_intersection> & vars, 
+      reg_idx & result, bool reuse_t1, instruction_block & acc) {
+      svector<reg_idx> result_regs; // TODO possible to make it work with just one result reg?
+      reg_idx join_reg1 = tail_regs[0];
+      for (unsigned i = 1; i < pt_len; ++i) {
+        // Intermediate result registers / signatures
+        reg_idx join_reg2 = tail_regs[i];
+        relation_signature res_sig;
+        relation_signature::from_join(m_reg_signatures[join_reg1], m_reg_signatures[join_reg2],
+          vars[i - 1].size(), vars[i - 1].get_cols1(), vars[i - 1].get_cols2(), res_sig); // cols not used
+        reg_idx res_idx = get_register(res_sig, reuse_t1, NULL);
+        TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << res_idx << "\n";);
+        TRACE("dl", tout << "tmp reg: " << res_idx << " size " << res_sig.size() << "\n";);
+        result_regs.push_back(res_idx);
+        join_reg1 = res_idx;
+      }      
+      result = result_regs.back();
+      // TODO try if reusing just last (largest since growing monotonically) reg would be good enough here
+      acc.push_back(instruction::mk_multiary_join(tail_regs, pt_len, vars, result_regs));
     }
 
     // TODO
     void compiler::make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
-      const vector<variable_intersection> & vars, const vector<unsigned_vector> & removed_cols,
+      const vector<variable_intersection> & vars, 
+      const vector<unsigned_vector> & removed_cols,
       reg_idx & result, bool reuse_t1, instruction_block & acc) {
-      /*
-      relation_signature aux_sig;
-      relation_signature sig1 = m_reg_signatures[t1];
-      relation_signature sig2 = m_reg_signatures[t2];
-      relation_signature::from_join(sig1, sig2, vars.size(), vars.get_cols1(), vars.get_cols2(), aux_sig);
-      relation_signature res_sig;
-      relation_signature::from_project(aux_sig, removed_cols.size(), removed_cols.c_ptr(),
-        res_sig);
-      result = get_register(res_sig, reuse_t1, t1);
-
-      acc.push_back(instruction::mk_join_project(t1, t2, vars.size(), vars.get_cols1(),
-        vars.get_cols2(), removed_cols.size(), removed_cols.c_ptr(), result));
-      */
+      svector<reg_idx> result_regs; // TODO possible to make it work with just one result reg?
+      reg_idx join_reg1 = tail_regs[0];
+      for (unsigned i = 1; i < pt_len; ++i) {
+        // Intermediate result registers / signatures
+        reg_idx join_reg2 = tail_regs[i];
+        relation_signature aux_sig;
+        TRACE("dl", tout << "vars size: " << vars[i - 1].size() << "\n";);
+        relation_signature::from_join(m_reg_signatures[join_reg1], m_reg_signatures[join_reg2],
+          vars[i - 1].size(), vars[i - 1].get_cols1(), vars[i - 1].get_cols2(), aux_sig); // cols not used
+        relation_signature res_sig;
+        relation_signature::from_project(aux_sig, removed_cols[i - 1].size(), removed_cols[i - 1].c_ptr(),
+          res_sig);
+        reg_idx res_idx = get_register(res_sig, reuse_t1, NULL);
+        TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << res_idx << "\n";);
+        TRACE("dl", tout << "tmp reg: " << res_idx << " size " << res_sig.size() << "\n";);
+        result_regs.push_back(res_idx);
+        join_reg1 = res_idx;
+      }
+      result = result_regs.back();
+      // TODO try if reusing just last (largest since growing monotonically) reg would be good enough here
+      acc.push_back(instruction::mk_multiary_join_project(tail_regs, pt_len, vars, removed_cols, result_regs));
     }
 
     void compiler::make_join(reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result, 
@@ -455,7 +473,7 @@ namespace datalog {
         }
     }    
     
-    // TODO counting tail O(n^2) times overall
+    // TODO currently counting tail O(n^2) times overall
     void compiler::get_local_indexes_for_projection(rule * r, const expr_ref_vector & intm_result,
       unsigned tail_offset, unsigned_vector & res) {
       rule_counter counter;
@@ -478,7 +496,7 @@ namespace datalog {
         }
       }
 
-      app * t2 = r->get_tail(tail_offset-1);
+      app * t2 = r->get_tail(tail_offset - 1);
       counter.count_vars(intm_result);
       counter.count_vars(t2);
 
@@ -513,6 +531,7 @@ namespace datalog {
         counter.count_vars(t1);
         counter.count_vars(t2);
 
+        // TODO possible to create expr_ref_vector from app->get_args(), which returns expr * const *?
         get_local_indexes_for_projection(t1, counter, 0, res);
         get_local_indexes_for_projection(t2, counter, t1->get_num_args(), res);
     }
@@ -522,46 +541,47 @@ namespace datalog {
         unsigned & second_tail_arg_ofs, instruction_block & acc) {
 
       if (pt_len > 2) { // XXX also works for pt_len==2, but we have faster special case
-        // TODO vectors of references?
         vector<unsigned_vector> removed_cols;
         vector<variable_intersection> join_cols;
         bool no_projection = true;
         // initialize intermediate result with first 
-        expr_ref_vector intm_result(m_context.get_manager());
         for (unsigned i = 0; i < r->get_tail(0)->get_num_args(); ++i) {
-          intm_result.push_back(r->get_tail(0)->get_arg(i));
+          single_res_expr.push_back(r->get_tail(0)->get_arg(i));
         }
+        SASSERT(m_reg_signatures[tail_regs[0]].size() == single_res_expr.size());
         for (unsigned i = 1; i < pt_len; ++i) {
-          //reg_idx t1_reg = intm_reg;
-          //reg_idx t2_reg = tail_regs[i];
           app * a2 = r->get_tail(i);
-          //SASSERT(m_reg_signatures[t1_reg].size() == a1->size());
-          //SASSERT(m_reg_signatures[t2_reg].size() == a2->get_num_args());
+          SASSERT(m_reg_signatures[tail_regs[i]].size() == a2->get_num_args());
 
           variable_intersection a1a2(m_context.get_manager());
-          a1a2.populate(intm_result, a2);
+          a1a2.populate(single_res_expr, a2);
 
           unsigned_vector curr_removed_cols;
-          get_local_indexes_for_projection(r, intm_result, i, curr_removed_cols); // TODO offsets
+          get_local_indexes_for_projection(r, single_res_expr, i + 1, curr_removed_cols);
           no_projection &= curr_removed_cols.empty();
           
-          // XXX copying here
+          // storing pointers here, copied in instruction constructor
           join_cols.push_back(a1a2);
           removed_cols.push_back(curr_removed_cols);
 
-          // TODO update intermediate result
+          // update intermediate result (TODO check this with projections)
+          expr_ref_vector updated_intm_result(m_context.get_manager());
           unsigned rem_index = 0;
           unsigned rem_sz = curr_removed_cols.size();
-          unsigned intm_result_len = intm_result.size();
+          unsigned intm_result_len = single_res_expr.size();
           for (unsigned i = 0; i < intm_result_len; i++) {
             SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= i);
             if (rem_index < rem_sz && curr_removed_cols[rem_index] == i) {
               rem_index++;
               continue;
             }
-            intm_result.push_back(intm_result.get(i));
+            updated_intm_result.push_back(single_res_expr.get(i));
           }
-          second_tail_arg_ofs = intm_result.size();
+          single_res_expr.reset();
+          expr_ref_vector::iterator it = updated_intm_result.begin(), end = updated_intm_result.end();
+          for (; it != end; ++it) {
+            single_res_expr.push_back(*it);
+          }
           unsigned a2len = a2->get_num_args();
           for (unsigned i = 0; i < a2len; i++) {
             SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= i + intm_result_len);
@@ -569,16 +589,20 @@ namespace datalog {
               rem_index++;
               continue;
             }
-            intm_result.push_back(a2->get_arg(i));
+            single_res_expr.push_back(a2->get_arg(i));
           }
           SASSERT(rem_index == rem_sz);
+        }
+        TRACE("dl", tout << "single_res_expr:"; print_container(single_res_expr, tout); tout << "\n";);
+        vector<unsigned_vector>::iterator it = removed_cols.begin(), end = removed_cols.end();
+        for (; it != end; ++it) {
+          TRACE("dl", tout << "removed_cols: "; print_container(*it, tout); tout << "\n";);
         }
         if (no_projection) {
           make_multiary_join(tail_regs, pt_len, join_cols, single_res, false, acc);
         } else {
           make_multiary_join_project(tail_regs, pt_len, join_cols, removed_cols, single_res, false, acc);
         }
-        // TODO copy constr? single_res_expr = intm_result;
       }
       else if (pt_len == 2) {
         reg_idx t1_reg = tail_regs[0];
@@ -612,7 +636,6 @@ namespace datalog {
           }
           single_res_expr.push_back(a1->get_arg(i));
         }
-        second_tail_arg_ofs = single_res_expr.size();
         unsigned a2len = a2->get_num_args();
         for (unsigned i = 0; i<a2len; i++) {
           SASSERT(rem_index == rem_sz || removed_cols[rem_index] >= i + a1len);
@@ -680,11 +703,6 @@ namespace datalog {
         // whether to dealloc the previous result
         bool dealloc = true;
 
-        // TODO
-        // repeat i = 1 to n:
-        //   compute intersection of variables in res(int(tail[i-1]), tail[i] taking into account projection in step i-1
-        //   compute variables to project
-        // make multi-artiy join/join_project operation
         compile_join_project(r, tail_regs, m, pt_len, single_res, single_res_expr, dealloc, second_tail_arg_ofs, acc);
 
         add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, acc);

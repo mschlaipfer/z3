@@ -153,10 +153,12 @@ namespace datalog {
         void make_select_equal_and_project(reg_idx src, const relation_element val, unsigned col,
             reg_idx & result, bool reuse, instruction_block & acc);
 
-        void make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, const vector<variable_intersection> & vars,
+        void make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, 
+          const vector<variable_intersection> & vars,
           reg_idx & result, bool reuse_t1, instruction_block & acc);
         void make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
-          const vector<variable_intersection> & vars, const vector<unsigned_vector> & removed_cols,
+          const vector<variable_intersection> & vars, 
+          const vector<unsigned_vector> & removed_cols,
           reg_idx & result, bool reuse_t1, instruction_block & acc);
         /**
            \brief Create add an union or widen operation and put it into \c acc.

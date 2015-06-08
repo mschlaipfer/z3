@@ -93,6 +93,8 @@ namespace datalog {
             unsigned m_filter_interp_project;
             unsigned m_filter_id;
             unsigned m_filter_eq;
+            unsigned m_multiary_join;
+            unsigned m_multiary_join_project;
             stats() { reset(); }
             void reset() { memset(this, 0, sizeof(*this)); }
         };
@@ -273,7 +275,7 @@ namespace datalog {
         static instruction * mk_join(reg_idx rel1, reg_idx rel2, unsigned col_cnt,
             const unsigned * cols1, const unsigned * cols2, reg_idx result);
         static instruction * mk_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
-            const vector<variable_intersection> & join_vars, reg_idx result);
+            const vector<variable_intersection> & join_vars, const svector<reg_idx> & result_regs);
         static instruction * mk_filter_equal(ast_manager & m, reg_idx reg, const relation_element & value, unsigned col);
         static instruction * mk_filter_identical(reg_idx reg, unsigned col_cnt, const unsigned * identical_cols);
         static instruction * mk_filter_interpreted(reg_idx reg, app_ref & condition);
@@ -286,11 +288,9 @@ namespace datalog {
         static instruction * mk_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt,
             const unsigned * cols1, const unsigned * cols2, unsigned removed_col_cnt, 
             const unsigned * removed_cols, reg_idx result);
-        /* TODO
-        static instruction * mk_multiary_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt,
-          const unsigned * cols1, const unsigned * cols2, unsigned removed_col_cnt,
-          const unsigned * removed_cols, reg_idx result);
-        */
+        static instruction * mk_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
+          const vector<variable_intersection> & join_vars, const vector<unsigned_vector> & removed_cols,
+          const svector<reg_idx> & result_regs);
         static instruction * mk_rename(reg_idx src, unsigned cycle_len, const unsigned * permutation_cycle, 
             reg_idx tgt);
         static instruction * mk_filter_by_negation(reg_idx tgt, reg_idx neg_rel, unsigned col_cnt,

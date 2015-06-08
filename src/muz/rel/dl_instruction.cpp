@@ -360,48 +360,86 @@ namespace datalog {
 
     class instr_multiary_join : public instruction {
       typedef unsigned_vector column_vector;
-      reg_idx m_res;
+      svector<reg_idx> m_results;
+      vector<column_vector> m_cols1;
+      vector<column_vector> m_cols2;
+      svector<reg_idx> m_regs;
     public:
       instr_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
-        const vector<variable_intersection> & join_vars, reg_idx result)
-        : m_res(result) {}
+        const vector<variable_intersection> & join_vars, const svector<reg_idx> & result_regs) {
+        SASSERT(pt_len > 2);
+        SASSERT(pt_len == join_vars.size() + 1);
+        SASSERT(pt_len == result_regs.size() + 1);
+        // copying stuff
+        vector<variable_intersection>::const_iterator it = join_vars.begin(), end = join_vars.end();
+        unsigned i = 0;
+        m_regs.push_back(tail_regs[i]);
+        for (; it != end; ++it) {
+          m_cols1.push_back(column_vector(it->size(), it->get_cols1()));
+          m_cols2.push_back(column_vector(it->size(), it->get_cols2()));
+          m_results.push_back(result_regs[i]);
+          m_regs.push_back(tail_regs[i + 1]);
+          i++;
+        }
+      }
       virtual bool perform(execution_context & ctx) {
-        /* TODO
         log_verbose(ctx);
-        ++ctx.m_stats.m_join;
-        if (!ctx.reg(m_rel1) || !ctx.reg(m_rel2)) {
-          ctx.make_empty(m_res);
-          return true;
-        }
-        relation_join_fn * fn;
-        const relation_base & r1 = *ctx.reg(m_rel1);
-        const relation_base & r2 = *ctx.reg(m_rel2);
-        if (!find_fn(r1, r2, fn)) {
-          fn = r1.get_manager().mk_join_fn(r1, r2, m_cols1, m_cols2);
-          if (!fn) {
-            throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
-              r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
+
+        // check if any of the regs contains an empty relation
+        // TODO correct like this or need fast_empty?
+        ++ctx.m_stats.m_multiary_join;
+        svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end(); 
+        for (; it != end; ++it) {
+          if (!ctx.reg(*it) || ctx.reg(*it)->fast_empty()) {
+            ctx.make_empty(m_results.back());
+            return true;
           }
-          store_fn(r1, r2, fn);
         }
 
-        TRACE("dl",
+        reg_idx join_reg1 = m_regs[0];
+        it = m_regs.begin() + 1, end = m_regs.end();
+        unsigned i = 0;
+        for (; it != end; ++it) {
+          reg_idx join_reg2 = *it;
+          const relation_base & r1 = *ctx.reg(join_reg1);
+          const relation_base & r2 = *ctx.reg(join_reg2);
+          TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << m_results[i] << "\n";);
+          relation_join_fn * fn;
+          // TODO
+          // function is built for merging size 1 and size 1 into size 2
+          // then gets cached
+          // function is picked up from cache, but used to join size 2 and size 1 and CRASH
+          /*if (!find_fn(r1, r2, fn))*/ {
+            fn = r1.get_manager().mk_join_fn(r1, r2, m_cols1[i], m_cols2[i]);
+            if (!fn) {
+              throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
+                r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
+            }
+            TRACE("dl", tout << "r1 kind " << r1.get_kind() << " r2 kind " << r2.get_kind() << "\n";);
+            // store_fn(r1, r2, fn); // TODO add an offset to key or just add to vector and then cache that?
+          }
+
+          TRACE("dl",
           r1.get_signature().output(ctx.get_rel_context().get_manager(), tout);
-        tout << ":" << r1.get_size_estimate_rows() << " x ";
-        r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
-        tout << ":" << r2.get_size_estimate_rows() << " ->\n";);
+          tout << ":" << r1.get_size_estimate_rows() << " x ";
+          r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
+          tout << ":" << r2.get_size_estimate_rows() << " ->\n";);
 
-        ctx.set_reg(m_res, (*fn)(r1, r2));
+          ctx.set_reg(m_results[i], (*fn)(r1, r2));
 
-        TRACE("dl",
-          ctx.reg(m_res)->get_signature().output(ctx.get_rel_context().get_manager(), tout);
-        tout << ":" << ctx.reg(m_res)->get_size_estimate_rows() << "\n";);
+          TRACE("dl",
+            ctx.reg(m_results[i])->get_signature().output(ctx.get_rel_context().get_manager(), tout);
+          tout << ":" << ctx.reg(m_results[i])->get_size_estimate_rows() << "\n";);
 
-        if (ctx.reg(m_res)->fast_empty()) {
-          ctx.make_empty(m_res);
+          if (ctx.reg(m_results[i])->fast_empty()) {
+            ctx.make_empty(m_results.back());
+            return true;
+          }
+
+          join_reg1 = m_results[i];
+          i++;
         }
-        return true;
-        */
+
         return true;
       }
       virtual void make_annotations(execution_context & ctx) {
@@ -413,19 +451,24 @@ namespace datalog {
         */
       }
       virtual void display_head_impl(execution_context const & ctx, std::ostream & out) const {
-        /*
-        out << "join " << m_rel1;
-        print_container(m_cols1, out);
-        out << " and " << m_rel2;
-        print_container(m_cols2, out);
-        out << " into " << m_res;
-        */
+        out << "join " << *m_regs.begin();
+        svector<reg_idx>::const_iterator it = m_regs.begin() + 1, end = m_regs.end();
+        unsigned i = 0;
+        for (; it != end; ++it) {
+          out << " ";
+          print_container(m_cols1[i], out);
+          out << " and ";
+          print_container(m_cols2[i], out);
+          out << " " << *it;
+          i++;
+        }
+        out << " into " << m_results.back();
       }
     };
 
     instruction * instruction::mk_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
-      const vector<variable_intersection> & join_vars, reg_idx result) {
-      return alloc(instr_multiary_join, tail_regs, pt_len, join_vars, result);
+      const vector<variable_intersection> & join_vars, const svector<reg_idx> & result_regs) {
+      return alloc(instr_multiary_join, tail_regs, pt_len, join_vars, result_regs);
     }
 
 
@@ -453,6 +496,7 @@ namespace datalog {
             const relation_base & r2 = *ctx.reg(m_rel2);
             if (!find_fn(r1, r2, fn)) {
                 fn = r1.get_manager().mk_join_fn(r1, r2, m_cols1, m_cols2);
+                TRACE("dl", tout << "creating new join " << &fn << "\n";);
                 if (!fn) {
                     throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
                         r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
@@ -879,80 +923,123 @@ namespace datalog {
         return alloc(instr_project_rename, false, src, cycle_len, permutation_cycle, tgt);
     }
 
-    /* TODO
     class instr_multiary_join_project : public instruction {
       typedef unsigned_vector column_vector;
-      reg_idx m_rel1;
-      reg_idx m_rel2;
-      column_vector m_cols1;
-      column_vector m_cols2;
-      column_vector m_removed_cols;
-      reg_idx m_res;
+      svector<reg_idx> m_results;
+      vector<column_vector> m_cols1;
+      vector<column_vector> m_cols2;
+      vector<column_vector> m_removed_cols;
+      svector<reg_idx> m_regs;
     public:
-      instr_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt, const unsigned * cols1,
-        const unsigned * cols2, unsigned removed_col_cnt, const unsigned * removed_cols, reg_idx result)
-        : m_rel1(rel1), m_rel2(rel2), m_cols1(joined_col_cnt, cols1),
-        m_cols2(joined_col_cnt, cols2), m_removed_cols(removed_col_cnt, removed_cols), m_res(result) {
+      instr_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
+        const vector<variable_intersection> & join_vars,
+        const vector<unsigned_vector> & removed_cols,
+        const svector<reg_idx> & result_regs) {
+        SASSERT(pt_len > 2);
+        SASSERT(pt_len == join_vars.size() + 1);
+        SASSERT(pt_len == result_regs.size() + 1);
+        // copying stuff
+        vector<variable_intersection>::const_iterator it = join_vars.begin(), end = join_vars.end();
+        unsigned i = 0;
+        m_regs.push_back(tail_regs[i]);
+        for (; it != end; ++it) {
+          m_results.push_back(result_regs[i]);
+          m_cols1.push_back(column_vector(it->size(), it->get_cols1()));
+          m_cols2.push_back(column_vector(it->size(), it->get_cols2()));
+          m_removed_cols.push_back(column_vector(removed_cols[i].size(), removed_cols[i].c_ptr()));
+          m_regs.push_back(tail_regs[i + 1]);
+          i++;
+        }
       }
       virtual bool perform(execution_context & ctx) {
         log_verbose(ctx);
-        if (!ctx.reg(m_rel1) || !ctx.reg(m_rel2)) {
-          ctx.make_empty(m_res);
-          return true;
-        }
-        ++ctx.m_stats.m_join_project;
-        relation_join_fn * fn;
-        const relation_base & r1 = *ctx.reg(m_rel1);
-        const relation_base & r2 = *ctx.reg(m_rel2);
-        if (!find_fn(r1, r2, fn)) {
-          fn = r1.get_manager().mk_join_project_fn(r1, r2, m_cols1, m_cols2, m_removed_cols);
-          if (!fn) {
-            throw default_exception("trying to perform unsupported join-project operation on relations of kinds %s and %s",
-              r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
+
+        // check if any of the regs contains an empty relation
+        // TODO correct like this or need fast_empty?
+        ++ctx.m_stats.m_multiary_join;
+        svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end();
+        for (; it != end; ++it) {
+          if (!ctx.reg(*it) || ctx.reg(*it)->fast_empty()) {
+            ctx.make_empty(m_results.back());
+            return true;
           }
-          store_fn(r1, r2, fn);
         }
-        TRACE("dl", tout << r1.get_size_estimate_rows() << " x " << r2.get_size_estimate_rows() << " jp->\n";);
-        ctx.set_reg(m_res, (*fn)(r1, r2));
-        TRACE("dl", tout << ctx.reg(m_res)->get_size_estimate_rows() << "\n";);
-        if (ctx.reg(m_res)->fast_empty()) {
-          ctx.make_empty(m_res);
+
+        reg_idx join_reg1 = m_regs[0];
+        it = m_regs.begin() + 1, end = m_regs.end();
+        unsigned i = 0;
+        for (; it != end; ++it) {
+          reg_idx join_reg2 = *it;
+          const relation_base & r1 = *ctx.reg(join_reg1);
+          const relation_base & r2 = *ctx.reg(join_reg2);
+          TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << m_results[i] << "\n";);
+          relation_join_fn * fn;
+          // TODO
+          // function is built for merging size 1 and size 1 into size 2
+          // then gets cached
+          // function is picked up from cache, but used to join size 2 and size 1 and CRASH
+          /*if (!find_fn(r1, r2, fn))*/ {
+            fn = r1.get_manager().mk_join_project_fn(r1, r2, m_cols1[i], m_cols2[i], m_removed_cols[i]);
+            if (!fn) {
+              throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
+                r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
+            }
+            TRACE("dl", tout << "r1 kind " << r1.get_kind() << " r2 kind " << r2.get_kind() << "\n";);
+            // store_fn(r1, r2, fn); // TODO add an offset to key or just add to vector and then cache that?
+          }
+
+          TRACE("dl",
+            r1.get_signature().output(ctx.get_rel_context().get_manager(), tout);
+          tout << ":" << r1.get_size_estimate_rows() << " x ";
+          r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
+          tout << ":" << r2.get_size_estimate_rows() << " ->\n";);
+
+          ctx.set_reg(m_results[i], (*fn)(r1, r2));
+
+          TRACE("dl",
+            ctx.reg(m_results[i])->get_signature().output(ctx.get_rel_context().get_manager(), tout);
+          tout << ":" << ctx.reg(m_results[i])->get_size_estimate_rows() << "\n";);
+
+          if (ctx.reg(m_results[i])->fast_empty()) {
+            ctx.make_empty(m_results.back());
+            return true;
+          }
+
+          join_reg1 = m_results[i];
+          i++;
         }
+
         return true;
       }
-      virtual void display_head_impl(execution_context const& ctx, std::ostream & out) const {
-        relation_base const* r1 = ctx.reg(m_rel1);
-        relation_base const* r2 = ctx.reg(m_rel2);
-        out << "join_project " << m_rel1;
-        if (r1) {
-          out << ":" << r1->num_columns();
-          out << "-" << r1->get_size_estimate_rows();
-        }
-        print_container(m_cols1, out);
-        out << " and " << m_rel2;
-        if (r2) {
-          out << ":" << r2->num_columns();
-          out << "-" << r2->get_size_estimate_rows();
-        }
-        print_container(m_cols2, out);
-        out << " into " << m_res << " removing columns ";
-        print_container(m_removed_cols, out);
-      }
       virtual void make_annotations(execution_context & ctx) {
-        std::string s1 = "rel1", s2 = "rel2";
-        ctx.get_register_annotation(m_rel1, s1);
-        ctx.get_register_annotation(m_rel2, s2);
-        ctx.set_register_annotation(m_res, "join project " + s1 + " " + s2);
+        /*
+        std::string a1 = "rel1", a2 = "rel2";
+        ctx.get_register_annotation(m_rel1, a1);
+        ctx.get_register_annotation(m_rel1, a1);
+        ctx.set_register_annotation(m_res, "join " + a1 + " " + a2);
+        */
+      }
+      virtual void display_head_impl(execution_context const & ctx, std::ostream & out) const {
+        out << "join " << *m_regs.begin();
+        svector<reg_idx>::const_iterator it = m_regs.begin() + 1, end = m_regs.end();
+        unsigned i = 0;
+        for (; it != end; ++it) {
+          out << " ";
+          print_container(m_cols1[i], out);
+          out << " and ";
+          print_container(m_cols2[i], out);
+          out << " " << *it;
+          i++;
+        }
+        out << " into " << m_results.back();
       }
     };
 
-    instruction * instruction::mk_multiary_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt,
-      const unsigned * cols1, const unsigned * cols2, unsigned removed_col_cnt,
-      const unsigned * removed_cols, reg_idx result) {
-      return alloc(instr_multiary_join_project, rel1, rel2, joined_col_cnt, cols1, cols2, removed_col_cnt,
-        removed_cols, result);
+    instruction * instruction::mk_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
+      const vector<variable_intersection> & join_vars, const vector<unsigned_vector> & removed_cols,
+      const svector<reg_idx> & result_regs) {
+      return alloc(instr_multiary_join_project, tail_regs, pt_len, join_vars, removed_cols, result_regs);
     }
-    */
 
     class instr_join_project : public instruction {
         typedef unsigned_vector column_vector;
