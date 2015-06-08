@@ -294,7 +294,7 @@ namespace datalog {
         rule_transformer transf(m_context);
         transf.register_plugin(alloc(mk_coi_filter, m_context));
         transf.register_plugin(alloc(mk_filter_rules, m_context));        
-        transf.register_plugin(alloc(mk_simple_joins, m_context));
+        //transf.register_plugin(alloc(mk_simple_joins, m_context));
         if (m_context.unbound_compressor()) {
             transf.register_plugin(alloc(mk_unbound_compressor, m_context));
         }
