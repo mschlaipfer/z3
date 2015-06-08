@@ -390,7 +390,7 @@ namespace datalog {
         ++ctx.m_stats.m_multiary_join;
         svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end(); 
         for (; it != end; ++it) {
-          if (!ctx.reg(*it) || ctx.reg(*it)->fast_empty()) {
+          if (!ctx.reg(*it)) {
             ctx.make_empty(m_results.back());
             return true;
           }
@@ -959,7 +959,7 @@ namespace datalog {
         ++ctx.m_stats.m_multiary_join;
         svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end();
         for (; it != end; ++it) {
-          if (!ctx.reg(*it) || ctx.reg(*it)->fast_empty()) {
+          if (!ctx.reg(*it)) {
             ctx.make_empty(m_results.back());
             return true;
           }
