@@ -53,51 +53,33 @@ namespace datalog {
     void compiler::make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, 
       const vector<variable_intersection> & vars, 
       reg_idx & result, bool reuse_t1, instruction_block & acc) {
-      svector<reg_idx> result_regs; // TODO possible to make it work with just one result reg?
-      reg_idx join_reg1 = tail_regs[0];
+      result = tail_regs[0];
       for (unsigned i = 1; i < pt_len; ++i) {
-        // Intermediate result registers / signatures
         reg_idx join_reg2 = tail_regs[i];
         relation_signature res_sig;
-        relation_signature::from_join(m_reg_signatures[join_reg1], m_reg_signatures[join_reg2],
+        relation_signature::from_join(m_reg_signatures[result], m_reg_signatures[join_reg2],
           vars[i - 1].size(), vars[i - 1].get_cols1(), vars[i - 1].get_cols2(), res_sig); // cols not used
-        reg_idx res_idx = get_register(res_sig, reuse_t1, NULL);
-        TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << res_idx << "\n";);
-        TRACE("dl", tout << "tmp reg: " << res_idx << " size " << res_sig.size() << "\n";);
-        result_regs.push_back(res_idx);
-        join_reg1 = res_idx;
+        result = get_register(res_sig, reuse_t1, NULL); // TODO NULL
       }      
-      result = result_regs.back();
-      // TODO try if reusing just last (largest since growing monotonically) reg would be good enough here
-      acc.push_back(instruction::mk_multiary_join(tail_regs, pt_len, vars, result_regs));
+      acc.push_back(instruction::mk_multiary_join(tail_regs, pt_len, vars, result));
     }
 
-    // TODO
     void compiler::make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
       const vector<variable_intersection> & vars, 
       const vector<unsigned_vector> & removed_cols,
       reg_idx & result, bool reuse_t1, instruction_block & acc) {
-      svector<reg_idx> result_regs; // TODO possible to make it work with just one result reg?
-      reg_idx join_reg1 = tail_regs[0];
+      result = tail_regs[0];
       for (unsigned i = 1; i < pt_len; ++i) {
-        // Intermediate result registers / signatures
         reg_idx join_reg2 = tail_regs[i];
         relation_signature aux_sig;
-        TRACE("dl", tout << "vars size: " << vars[i - 1].size() << "\n";);
-        relation_signature::from_join(m_reg_signatures[join_reg1], m_reg_signatures[join_reg2],
+        relation_signature::from_join(m_reg_signatures[result], m_reg_signatures[join_reg2],
           vars[i - 1].size(), vars[i - 1].get_cols1(), vars[i - 1].get_cols2(), aux_sig); // cols not used
         relation_signature res_sig;
         relation_signature::from_project(aux_sig, removed_cols[i - 1].size(), removed_cols[i - 1].c_ptr(),
           res_sig);
-        reg_idx res_idx = get_register(res_sig, reuse_t1, NULL);
-        TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << res_idx << "\n";);
-        TRACE("dl", tout << "tmp reg: " << res_idx << " size " << res_sig.size() << "\n";);
-        result_regs.push_back(res_idx);
-        join_reg1 = res_idx;
+        result = get_register(res_sig, reuse_t1, NULL); // TODO NULL
       }
-      result = result_regs.back();
-      // TODO try if reusing just last (largest since growing monotonically) reg would be good enough here
-      acc.push_back(instruction::mk_multiary_join_project(tail_regs, pt_len, vars, removed_cols, result_regs));
+      acc.push_back(instruction::mk_multiary_join_project(tail_regs, pt_len, vars, removed_cols, result));
     }
 
     void compiler::make_join(reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result, 
@@ -473,7 +455,7 @@ namespace datalog {
         }
     }    
     
-    // TODO currently counting tail O(n^2) times overall
+    // XXX currently counting tail O(n^2) times overall
     void compiler::get_local_indexes_for_projection(rule * r, const expr_ref_vector & intm_result,
       unsigned tail_offset, unsigned_vector & res) {
       rule_counter counter;
@@ -540,11 +522,12 @@ namespace datalog {
         unsigned pt_len, reg_idx & single_res, expr_ref_vector & single_res_expr, bool & dealloc,
         unsigned & second_tail_arg_ofs, instruction_block & acc) {
 
-      if (pt_len > 2) { // XXX also works for pt_len==2, but we have faster special case
+      if (pt_len > 2) {
+        // Should also work if pt_len <= 2, but special cases should be faster
         vector<unsigned_vector> removed_cols;
         vector<variable_intersection> join_cols;
         bool no_projection = true;
-        // initialize intermediate result with first 
+        // initialize intermediate result with first positive tail predicate
         for (unsigned i = 0; i < r->get_tail(0)->get_num_args(); ++i) {
           single_res_expr.push_back(r->get_tail(0)->get_arg(i));
         }
@@ -560,11 +543,10 @@ namespace datalog {
           get_local_indexes_for_projection(r, single_res_expr, i + 1, curr_removed_cols);
           no_projection &= curr_removed_cols.empty();
           
-          // storing pointers here, copied in instruction constructor
           join_cols.push_back(a1a2);
           removed_cols.push_back(curr_removed_cols);
 
-          // update intermediate result (TODO check this with projections)
+          // update intermediate result
           expr_ref_vector updated_intm_result(m_context.get_manager());
           unsigned rem_index = 0;
           unsigned rem_sz = curr_removed_cols.size();
@@ -592,11 +574,6 @@ namespace datalog {
             single_res_expr.push_back(a2->get_arg(i));
           }
           SASSERT(rem_index == rem_sz);
-        }
-        TRACE("dl", tout << "single_res_expr:"; print_container(single_res_expr, tout); tout << "\n";);
-        vector<unsigned_vector>::iterator it = removed_cols.begin(), end = removed_cols.end();
-        for (; it != end; ++it) {
-          TRACE("dl", tout << "removed_cols: "; print_container(*it, tout); tout << "\n";);
         }
         if (no_projection) {
           make_multiary_join(tail_regs, pt_len, join_cols, single_res, false, acc);

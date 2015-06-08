@@ -360,16 +360,16 @@ namespace datalog {
 
     class instr_multiary_join : public instruction {
       typedef unsigned_vector column_vector;
-      svector<reg_idx> m_results;
+      reg_idx m_result;
       vector<column_vector> m_cols1;
       vector<column_vector> m_cols2;
       svector<reg_idx> m_regs;
     public:
       instr_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
-        const vector<variable_intersection> & join_vars, const svector<reg_idx> & result_regs) {
+        const vector<variable_intersection> & join_vars, reg_idx result_reg)
+        : m_result(result_reg) {
         SASSERT(pt_len > 2);
         SASSERT(pt_len == join_vars.size() + 1);
-        SASSERT(pt_len == result_regs.size() + 1);
         // copying stuff
         vector<variable_intersection>::const_iterator it = join_vars.begin(), end = join_vars.end();
         unsigned i = 0;
@@ -377,7 +377,6 @@ namespace datalog {
         for (; it != end; ++it) {
           m_cols1.push_back(column_vector(it->size(), it->get_cols1()));
           m_cols2.push_back(column_vector(it->size(), it->get_cols2()));
-          m_results.push_back(result_regs[i]);
           m_regs.push_back(tail_regs[i + 1]);
           i++;
         }
@@ -386,12 +385,11 @@ namespace datalog {
         log_verbose(ctx);
 
         // check if any of the regs contains an empty relation
-        // TODO correct like this or need fast_empty?
         ++ctx.m_stats.m_multiary_join;
         svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end(); 
         for (; it != end; ++it) {
           if (!ctx.reg(*it)) {
-            ctx.make_empty(m_results.back());
+            ctx.make_empty(m_result);
             return true;
           }
         }
@@ -403,7 +401,7 @@ namespace datalog {
           reg_idx join_reg2 = *it;
           const relation_base & r1 = *ctx.reg(join_reg1);
           const relation_base & r2 = *ctx.reg(join_reg2);
-          TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << m_results[i] << "\n";);
+          TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << m_result << "\n";);
           relation_join_fn * fn;
           // TODO
           // function is built for merging size 1 and size 1 into size 2
@@ -425,18 +423,18 @@ namespace datalog {
           r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << r2.get_size_estimate_rows() << " ->\n";);
 
-          ctx.set_reg(m_results[i], (*fn)(r1, r2));
+          ctx.set_reg(m_result, (*fn)(r1, r2));
 
           TRACE("dl",
-            ctx.reg(m_results[i])->get_signature().output(ctx.get_rel_context().get_manager(), tout);
-          tout << ":" << ctx.reg(m_results[i])->get_size_estimate_rows() << "\n";);
+            ctx.reg(m_result)->get_signature().output(ctx.get_rel_context().get_manager(), tout);
+          tout << ":" << ctx.reg(m_result)->get_size_estimate_rows() << "\n";);
 
-          if (ctx.reg(m_results[i])->fast_empty()) {
-            ctx.make_empty(m_results.back());
+          if (ctx.reg(m_result)->fast_empty()) {
+            ctx.make_empty(m_result);
             return true;
           }
 
-          join_reg1 = m_results[i];
+          join_reg1 = m_result;
           i++;
         }
 
@@ -451,7 +449,7 @@ namespace datalog {
         */
       }
       virtual void display_head_impl(execution_context const & ctx, std::ostream & out) const {
-        out << "join " << *m_regs.begin();
+        out << "multiary_join " << *m_regs.begin();
         svector<reg_idx>::const_iterator it = m_regs.begin() + 1, end = m_regs.end();
         unsigned i = 0;
         for (; it != end; ++it) {
@@ -462,13 +460,13 @@ namespace datalog {
           out << " " << *it;
           i++;
         }
-        out << " into " << m_results.back();
+        out << " into " << m_result;
       }
     };
 
     instruction * instruction::mk_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
-      const vector<variable_intersection> & join_vars, const svector<reg_idx> & result_regs) {
-      return alloc(instr_multiary_join, tail_regs, pt_len, join_vars, result_regs);
+      const vector<variable_intersection> & join_vars, reg_idx result_reg) {
+      return alloc(instr_multiary_join, tail_regs, pt_len, join_vars, result_reg);
     }
 
 
@@ -925,7 +923,7 @@ namespace datalog {
 
     class instr_multiary_join_project : public instruction {
       typedef unsigned_vector column_vector;
-      svector<reg_idx> m_results;
+      reg_idx m_result;
       vector<column_vector> m_cols1;
       vector<column_vector> m_cols2;
       vector<column_vector> m_removed_cols;
@@ -934,16 +932,14 @@ namespace datalog {
       instr_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
         const vector<variable_intersection> & join_vars,
         const vector<unsigned_vector> & removed_cols,
-        const svector<reg_idx> & result_regs) {
+        reg_idx result_reg) : m_result(result_reg) {
         SASSERT(pt_len > 2);
         SASSERT(pt_len == join_vars.size() + 1);
-        SASSERT(pt_len == result_regs.size() + 1);
         // copying stuff
         vector<variable_intersection>::const_iterator it = join_vars.begin(), end = join_vars.end();
         unsigned i = 0;
         m_regs.push_back(tail_regs[i]);
         for (; it != end; ++it) {
-          m_results.push_back(result_regs[i]);
           m_cols1.push_back(column_vector(it->size(), it->get_cols1()));
           m_cols2.push_back(column_vector(it->size(), it->get_cols2()));
           m_removed_cols.push_back(column_vector(removed_cols[i].size(), removed_cols[i].c_ptr()));
@@ -955,12 +951,11 @@ namespace datalog {
         log_verbose(ctx);
 
         // check if any of the regs contains an empty relation
-        // TODO correct like this or need fast_empty?
         ++ctx.m_stats.m_multiary_join;
         svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end();
         for (; it != end; ++it) {
           if (!ctx.reg(*it)) {
-            ctx.make_empty(m_results.back());
+            ctx.make_empty(m_result);
             return true;
           }
         }
@@ -972,7 +967,7 @@ namespace datalog {
           reg_idx join_reg2 = *it;
           const relation_base & r1 = *ctx.reg(join_reg1);
           const relation_base & r2 = *ctx.reg(join_reg2);
-          TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << m_results[i] << "\n";);
+          TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << m_result << "\n";);
           relation_join_fn * fn;
           // TODO
           // function is built for merging size 1 and size 1 into size 2
@@ -994,18 +989,18 @@ namespace datalog {
           r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << r2.get_size_estimate_rows() << " ->\n";);
 
-          ctx.set_reg(m_results[i], (*fn)(r1, r2));
+          ctx.set_reg(m_result, (*fn)(r1, r2));
 
           TRACE("dl",
-            ctx.reg(m_results[i])->get_signature().output(ctx.get_rel_context().get_manager(), tout);
-          tout << ":" << ctx.reg(m_results[i])->get_size_estimate_rows() << "\n";);
+            ctx.reg(m_result)->get_signature().output(ctx.get_rel_context().get_manager(), tout);
+          tout << ":" << ctx.reg(m_result)->get_size_estimate_rows() << "\n";);
 
-          if (ctx.reg(m_results[i])->fast_empty()) {
-            ctx.make_empty(m_results.back());
+          if (ctx.reg(m_result)->fast_empty()) {
+            ctx.make_empty(m_result);
             return true;
           }
 
-          join_reg1 = m_results[i];
+          join_reg1 = m_result;
           i++;
         }
 
@@ -1020,7 +1015,7 @@ namespace datalog {
         */
       }
       virtual void display_head_impl(execution_context const & ctx, std::ostream & out) const {
-        out << "join " << *m_regs.begin();
+        out << "multiary_join_project " << *m_regs.begin();
         svector<reg_idx>::const_iterator it = m_regs.begin() + 1, end = m_regs.end();
         unsigned i = 0;
         for (; it != end; ++it) {
@@ -1031,14 +1026,14 @@ namespace datalog {
           out << " " << *it;
           i++;
         }
-        out << " into " << m_results.back();
+        out << " into " << m_result;
       }
     };
 
     instruction * instruction::mk_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
       const vector<variable_intersection> & join_vars, const vector<unsigned_vector> & removed_cols,
-      const svector<reg_idx> & result_regs) {
-      return alloc(instr_multiary_join_project, tail_regs, pt_len, join_vars, removed_cols, result_regs);
+      reg_idx result_reg) {
+      return alloc(instr_multiary_join_project, tail_regs, pt_len, join_vars, removed_cols, result_reg);
     }
 
     class instr_join_project : public instruction {
