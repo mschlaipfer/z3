@@ -522,7 +522,7 @@ namespace datalog {
         virtual void make_annotations(execution_context & ctx) {
             std::string a1 = "rel1", a2 = "rel2";
             ctx.get_register_annotation(m_rel1, a1);
-            ctx.get_register_annotation(m_rel1, a1);
+            ctx.get_register_annotation(m_rel2, a2);
             ctx.set_register_annotation(m_res, "join " + a1 + " " + a2);
         }
         virtual void display_head_impl(execution_context const & ctx, std::ostream & out) const {
