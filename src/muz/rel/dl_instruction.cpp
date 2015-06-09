@@ -389,6 +389,7 @@ namespace datalog {
         svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end(); 
         for (; it != end; ++it) {
           if (!ctx.reg(*it)) {
+            TRACE("dl_empty", ;);
             ctx.make_empty(m_result);
             return true;
           }
@@ -401,7 +402,6 @@ namespace datalog {
           reg_idx join_reg2 = *it;
           const relation_base & r1 = *ctx.reg(join_reg1);
           const relation_base & r2 = *ctx.reg(join_reg2);
-          TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << m_result << "\n";);
           relation_join_fn * fn;
           // TODO
           // function is built for merging size 1 and size 1 into size 2
@@ -413,7 +413,6 @@ namespace datalog {
               throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
                 r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
             }
-            TRACE("dl", tout << "r1 kind " << r1.get_kind() << " r2 kind " << r2.get_kind() << "\n";);
             // store_fn(r1, r2, fn); // TODO add an offset to key or just add to vector and then cache that?
           }
 
@@ -955,6 +954,7 @@ namespace datalog {
         svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end();
         for (; it != end; ++it) {
           if (!ctx.reg(*it)) {
+            TRACE("dl_empty", ;);
             ctx.make_empty(m_result);
             return true;
           }
@@ -967,7 +967,6 @@ namespace datalog {
           reg_idx join_reg2 = *it;
           const relation_base & r1 = *ctx.reg(join_reg1);
           const relation_base & r2 = *ctx.reg(join_reg2);
-          TRACE("dl", tout << "joining " << join_reg1 << " and " << join_reg2 << " into " << m_result << "\n";);
           relation_join_fn * fn;
           // TODO
           // function is built for merging size 1 and size 1 into size 2
@@ -979,7 +978,6 @@ namespace datalog {
               throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
                 r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
             }
-            TRACE("dl", tout << "r1 kind " << r1.get_kind() << " r2 kind " << r2.get_kind() << "\n";);
             // store_fn(r1, r2, fn); // TODO add an offset to key or just add to vector and then cache that?
           }
 
@@ -1027,6 +1025,12 @@ namespace datalog {
           i++;
         }
         out << " into " << m_result;
+        out << " removing columns";
+        svector<column_vector>::const_iterator remit = m_removed_cols.begin() + 1, remend = m_removed_cols.end();
+        for (; remit != remend; ++remit) {
+          out << " ";
+          print_container(*remit, out);
+        }
       }
     };
 
