@@ -389,7 +389,6 @@ namespace datalog {
         svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end(); 
         for (; it != end; ++it) {
           if (!ctx.reg(*it)) {
-            TRACE("dl_empty", ;);
             ctx.make_empty(m_result);
             return true;
           }
@@ -951,7 +950,6 @@ namespace datalog {
         svector<reg_idx>::const_iterator it = m_regs.begin(), end = m_regs.end();
         for (; it != end; ++it) {
           if (!ctx.reg(*it)) {
-            TRACE("dl_empty", ;);
             ctx.make_empty(m_result);
             return true;
           }
