@@ -403,18 +403,15 @@ namespace datalog {
           const relation_base & r1 = *ctx.reg(join_reg1);
           const relation_base & r2 = *ctx.reg(join_reg2);
           relation_join_fn * fn;
-          // TODO
-          // function is built for merging size 1 and size 1 into size 2
-          // then gets cached
-          // function is picked up from cache, but used to join size 2 and size 1 and CRASH
-          /*if (!find_fn(r1, r2, fn))*/ {
-            fn = r1.get_manager().mk_join_fn(r1, r2, m_cols1[i], m_cols2[i]);
-            if (!fn) {
-              throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
-                r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
-            }
-            // store_fn(r1, r2, fn); // TODO add an offset to key or just add to vector and then cache that?
+          /* slower with caching
+          if (!find_fn(r1, r2, i, fn)) {*/
+          fn = r1.get_manager().mk_join_fn(r1, r2, m_cols1[i], m_cols2[i]);
+          if (!fn) {
+            throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
+              r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
           }
+          /*  store_fn(r1, r2, i, fn);
+          }*/
 
           TRACE("dl",
           r1.get_signature().output(ctx.get_rel_context().get_manager(), tout);
@@ -968,18 +965,15 @@ namespace datalog {
           const relation_base & r1 = *ctx.reg(join_reg1);
           const relation_base & r2 = *ctx.reg(join_reg2);
           relation_join_fn * fn;
-          // TODO
-          // function is built for merging size 1 and size 1 into size 2
-          // then gets cached
-          // function is picked up from cache, but used to join size 2 and size 1 and CRASH
-          /*if (!find_fn(r1, r2, fn))*/ {
-            fn = r1.get_manager().mk_join_project_fn(r1, r2, m_cols1[i], m_cols2[i], m_removed_cols[i]);
-            if (!fn) {
-              throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
-                r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
-            }
-            // store_fn(r1, r2, fn); // TODO add an offset to key or just add to vector and then cache that?
+          /* slower with caching
+          if (!find_fn(r1, r2, i, fn)) {*/
+          fn = r1.get_manager().mk_join_project_fn(r1, r2, m_cols1[i], m_cols2[i], m_removed_cols[i]);
+          if (!fn) {
+            throw default_exception("trying to perform unsupported join operation on relations of kinds %s and %s",
+              r1.get_plugin().get_name().bare_str(), r2.get_plugin().get_name().bare_str());
           }
+          /*  store_fn(r1, r2, i, fn);
+          }*/
 
           TRACE("dl",
             r1.get_signature().output(ctx.get_rel_context().get_manager(), tout);

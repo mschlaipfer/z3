@@ -455,7 +455,6 @@ namespace datalog {
         }
     }    
     
-    // XXX currently counting tail O(n^2) times overall
     void compiler::get_local_indexes_for_projection(rule * r, const expr_ref_vector & intm_result,
       unsigned tail_offset, unsigned_vector & res) {
       rule_counter counter;
@@ -519,8 +518,8 @@ namespace datalog {
     }
 
     void compiler::compile_join_project(rule * r, const reg_idx * tail_regs, const ast_manager & m, 
-        unsigned pt_len, reg_idx & single_res, expr_ref_vector & single_res_expr, bool & dealloc,
-        unsigned & second_tail_arg_ofs, instruction_block & acc) {
+        unsigned pt_len, unsigned_vector & offsets, reg_idx & single_res, 
+        expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc) {
 
       if (pt_len > 2) {
         // Should also work if pt_len <= 2, but special cases should be faster
@@ -559,6 +558,7 @@ namespace datalog {
             }
             updated_intm_result.push_back(single_res_expr.get(i));
           }
+          offsets.push_back(single_res_expr.size());
           single_res_expr.reset();
           expr_ref_vector::iterator it = updated_intm_result.begin(), end = updated_intm_result.end();
           for (; it != end; ++it) {
@@ -613,6 +613,7 @@ namespace datalog {
           }
           single_res_expr.push_back(a1->get_arg(i));
         }
+        offsets.push_back(single_res_expr.size());
         unsigned a2len = a2->get_num_args();
         for (unsigned i = 0; i<a2len; i++) {
           SASSERT(rem_index == rem_sz || removed_cols[rem_index] >= i + a1len);
@@ -673,14 +674,15 @@ namespace datalog {
         reg_idx single_res;
         expr_ref_vector single_res_expr(m);
 
-        //used to save on filter_identical instructions where the check is already done 
-        //by the join operation
-        unsigned second_tail_arg_ofs;
+        // offsets used for computing whether col equality needs to be established
+        unsigned_vector offsets;
+        offsets.push_back(0);
 
         // whether to dealloc the previous result
         bool dealloc = true;
 
-        compile_join_project(r, tail_regs, m, pt_len, single_res, single_res_expr, dealloc, second_tail_arg_ofs, acc);
+        compile_join_project(r, tail_regs, m, pt_len, offsets, single_res, single_res_expr, dealloc, acc);
+        offsets.push_back(single_res_expr.size());
 
         add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, acc);
 
@@ -712,20 +714,29 @@ namespace datalog {
         }
 
         //enforce equality of columns
-        int2ints::iterator vit=var_indexes.begin();
-        int2ints::iterator vend=var_indexes.end();
-        for(; vit!=vend; ++vit) {
+        int2ints::iterator vit = var_indexes.begin();
+        int2ints::iterator vend = var_indexes.end();
+        for (; vit!=vend; ++vit) {
             int2ints::key_data & k = *vit;
             unsigned_vector & indexes = k.m_value;
-            if(indexes.size()==1) {
+            if (indexes.size() == 1) {
                 continue;
             }
             SASSERT(indexes.size()>1);
-            // TODO understand second_tail_arg_ofs
-            if(pt_len==2 && indexes[0]<second_tail_arg_ofs && indexes.back()>=second_tail_arg_ofs) {
-                //If variable appears in multiple tails, the identicity will already be enforced by join.
-                //(If behavior the join changes so that it is not enforced anymore, remove this
-                //condition!)
+            //If variable appears in multiple tails, the identicity will already be enforced by join.
+            //(If behavior the join changes so that it is not enforced anymore, remove this
+            //condition!)
+            if (pt_len >= 2) {
+              // check if all indexes are from a single predicate
+              unsigned_vector::const_iterator it = offsets.begin(), end = offsets.end() - 1;
+              bool var_in_single_interval = false;
+              // if var_in_single_interval turns true, early exit
+              for (; it != end && !var_in_single_interval; ++it) {
+                int lower = *it, upper = *(it + 1);
+                int min_index = indexes[0], max_index = indexes.back();
+                var_in_single_interval |= (lower <= min_index && max_index < upper);
+              }
+              if (!var_in_single_interval)
                 continue;
             }
             if (!dealloc)
