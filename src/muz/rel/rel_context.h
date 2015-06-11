@@ -27,6 +27,7 @@ Revision History:
 #include "dl_context.h"
 #include "lbool.h"
 
+
 namespace datalog {
 
     class context;

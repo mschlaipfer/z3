@@ -35,8 +35,8 @@ Revision History:
 #include "dl_instruction.h"
 
 namespace datalog {
-
     class compiler {
+    public: // TODO
         typedef instruction::reg_idx reg_idx;
         typedef hashtable<unsigned, u_hash, u_eq> int_set;
         typedef u_map<unsigned> int2int;
@@ -284,17 +284,14 @@ namespace datalog {
         void do_compilation(instruction_block & execution_code, 
             instruction_block & termination_code);
 
-    public:
+    // TODO public:
 
         static void compile(context & ctx, rule_set const & rules, instruction_block & execution_code, 
                 instruction_block & termination_code) {
-            compiler(ctx, rules, execution_code)
-                .do_compilation(execution_code, termination_code);
+            compiler(ctx, rules, execution_code).do_compilation(execution_code, termination_code);
         }
 
     };
-
-
 };
 
 #endif /* _DL_COMPILER_H_ */

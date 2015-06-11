@@ -136,7 +136,7 @@ namespace datalog {
             static void from_multiary_join(const vector<signature> & sigs, signature & result) {
               result.reset();
 
-              vector<signature>::const_iterator it = sigs.begin(), end = sigs.end();
+              typename vector<signature>::iterator it = sigs.begin(), end = sigs.end();
               for (; it != end; ++it) {
                 const signature & sig = *it;
                 for (unsigned i = 0; i < sig.size(); i++) {

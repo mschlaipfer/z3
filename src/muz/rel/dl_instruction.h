@@ -33,6 +33,7 @@ namespace datalog {
     class execution_context;
     class instruction_block;
     class rel_context;
+    class compiler;
 
     inline void check_overflow(unsigned i) {
         if (i == UINT_MAX) {
@@ -242,6 +243,15 @@ namespace datalog {
         typedef execution_context::reg_type reg_type;
         typedef execution_context::reg_idx reg_idx;
 
+        // TODO
+        typedef hashtable<unsigned, u_hash, u_eq> int_set;
+        typedef u_map<unsigned> int2int;
+        typedef u_map<unsigned_vector> int2ints;
+        typedef obj_map<func_decl, reg_idx> pred2idx;
+        typedef unsigned_vector var_vector;
+        typedef ptr_vector<func_decl> func_decl_vector;
+
+
         virtual ~instruction();
 
         virtual bool perform(execution_context & ctx) = 0;
@@ -308,6 +318,9 @@ namespace datalog {
         static instruction * mk_mark_saturated(ast_manager & m, func_decl * pred);
 
         static instruction * mk_assert_signature(const relation_signature & s, reg_idx tgt);
+
+        static instruction * mk_exec(rule * r, reg_idx head_reg, const reg_idx * tail_regs,
+          reg_idx delta_reg, bool use_widening);
 
         void collect_statistics(statistics& st) const;
 

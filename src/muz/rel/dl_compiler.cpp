@@ -1096,7 +1096,8 @@ namespace datalog {
         }
 
         if(!input_deltas || all_or_nothing_deltas()) {
-            compile_rule_evaluation_run(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening, acc);
+          TRACE("dl", tout << "pushing exec1\n";);
+            acc.push_back(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening));
         }
         else {
             tail_delta_infos::iterator tdit = tail_deltas.begin();
@@ -1104,7 +1105,8 @@ namespace datalog {
             for(; tdit!=tdend; ++tdit) {
                 tail_delta_info tdinfo = *tdit;
                 flet<reg_idx> flet_tail_reg(tail_regs[tdinfo.second], tdinfo.first);
-                compile_rule_evaluation_run(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening, acc);
+                TRACE("dl", tout << "pushing exec2\n";);
+                acc.push_back(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening));
             }
         }
     }

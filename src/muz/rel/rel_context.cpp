@@ -55,6 +55,9 @@ Revision History:
 
 namespace datalog {
 
+  class compiler;
+  compiler * g_compiler;
+
     class rel_context::scoped_query {
         context&  m_ctx;
         rule_set  m_rules;
@@ -149,7 +152,7 @@ namespace datalog {
             m_code.reset();
             termination_code.reset();
             m_context.ensure_closed();
-            transform_rules();
+            //transform_rules();
             if (m_context.canceled()) {
                 result = l_undef;
                 break;
@@ -167,8 +170,8 @@ namespace datalog {
 
             ::stopwatch sw;
             sw.start();
-
-            compiler::compile(m_context, m_context.get_rules(), m_code, termination_code);
+            g_compiler = new compiler(m_context, m_context.get_rules(), m_code);
+            g_compiler->do_compilation(m_code, termination_code);
 
             bool timeout_after_this_round = time_limit && (restart_time==0 || remaining_time_limit<=restart_time);
 
