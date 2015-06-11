@@ -518,7 +518,7 @@ namespace datalog {
     }
 
     void compiler::compile_join_project(rule * r, const reg_idx * tail_regs, const ast_manager & m, 
-        unsigned pt_len, unsigned_vector & offsets, reg_idx & single_res, 
+        unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res, 
         expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc) {
 
       if (pt_len > 2) {
@@ -527,8 +527,10 @@ namespace datalog {
         vector<variable_intersection> join_cols;
         bool no_projection = true;
         // initialize intermediate result with first positive tail predicate
+
         for (unsigned i = 0; i < r->get_tail(0)->get_num_args(); ++i) {
           single_res_expr.push_back(r->get_tail(0)->get_arg(i));
+          belongs_to.push_back(0);
         }
         SASSERT(m_reg_signatures[tail_regs[0]].size() == single_res_expr.size());
         for (unsigned i = 1; i < pt_len; ++i) {
@@ -547,31 +549,35 @@ namespace datalog {
 
           // update intermediate result
           expr_ref_vector updated_intm_result(m_context.get_manager());
+          unsigned_vector updated_belongs_to;
           unsigned rem_index = 0;
           unsigned rem_sz = curr_removed_cols.size();
           unsigned intm_result_len = single_res_expr.size();
-          for (unsigned i = 0; i < intm_result_len; i++) {
-            SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= i);
-            if (rem_index < rem_sz && curr_removed_cols[rem_index] == i) {
+          for (unsigned j = 0; j < intm_result_len; j++) {
+            SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= j);
+            if (rem_index < rem_sz && curr_removed_cols[rem_index] == j) {
               rem_index++;
               continue;
             }
-            updated_intm_result.push_back(single_res_expr.get(i));
+            updated_intm_result.push_back(single_res_expr.get(j));
+            updated_belongs_to.push_back(belongs_to.get(j));
           }
-          offsets.push_back(single_res_expr.size());
           single_res_expr.reset();
+          belongs_to.reset();
           expr_ref_vector::iterator it = updated_intm_result.begin(), end = updated_intm_result.end();
-          for (; it != end; ++it) {
+          for (unsigned j = 0; it != end; ++it, ++j) {
             single_res_expr.push_back(*it);
+            belongs_to.push_back(updated_belongs_to.get(j));
           }
           unsigned a2len = a2->get_num_args();
-          for (unsigned i = 0; i < a2len; i++) {
-            SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= i + intm_result_len);
-            if (rem_index < rem_sz && curr_removed_cols[rem_index] == i + intm_result_len) {
+          for (unsigned j = 0; j < a2len; j++) {
+            SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= j + intm_result_len);
+            if (rem_index < rem_sz && curr_removed_cols[rem_index] == j + intm_result_len) {
               rem_index++;
               continue;
             }
-            single_res_expr.push_back(a2->get_arg(i));
+            single_res_expr.push_back(a2->get_arg(j));
+            belongs_to.push_back(i);
           }
           SASSERT(rem_index == rem_sz);
         }
@@ -605,23 +611,24 @@ namespace datalog {
         unsigned rem_index = 0;
         unsigned rem_sz = removed_cols.size();
         unsigned a1len = a1->get_num_args();
-        for (unsigned i = 0; i<a1len; i++) {
-          SASSERT(rem_index == rem_sz || removed_cols[rem_index] >= i);
-          if (rem_index<rem_sz && removed_cols[rem_index] == i) {
+        for (unsigned j = 0; j < a1len; j++) {
+          SASSERT(rem_index == rem_sz || removed_cols[rem_index] >= j);
+          if (rem_index<rem_sz && removed_cols[rem_index] == j) {
             rem_index++;
             continue;
           }
-          single_res_expr.push_back(a1->get_arg(i));
+          single_res_expr.push_back(a1->get_arg(j));
+          belongs_to.push_back(0);
         }
-        offsets.push_back(single_res_expr.size());
         unsigned a2len = a2->get_num_args();
-        for (unsigned i = 0; i<a2len; i++) {
-          SASSERT(rem_index == rem_sz || removed_cols[rem_index] >= i + a1len);
-          if (rem_index<rem_sz && removed_cols[rem_index] == i + a1len) {
+        for (unsigned j = 0; j < a2len; j++) {
+          SASSERT(rem_index == rem_sz || removed_cols[rem_index] >= j + a1len);
+          if (rem_index<rem_sz && removed_cols[rem_index] == j + a1len) {
             rem_index++;
             continue;
           }
-          single_res_expr.push_back(a2->get_arg(i));
+          single_res_expr.push_back(a2->get_arg(j));
+          belongs_to.push_back(1);
         }
         SASSERT(rem_index == rem_sz);
       }
@@ -674,15 +681,14 @@ namespace datalog {
         reg_idx single_res;
         expr_ref_vector single_res_expr(m);
 
-        // offsets used for computing whether col equality needs to be established
+        // used for computing whether col equality needs to be established
+        unsigned_vector belongs_to;        
         unsigned_vector offsets;
-        offsets.push_back(0);
 
         // whether to dealloc the previous result
         bool dealloc = true;
 
-        compile_join_project(r, tail_regs, m, pt_len, offsets, single_res, single_res_expr, dealloc, acc);
-        offsets.push_back(single_res_expr.size());
+        compile_join_project(r, tail_regs, m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
 
         add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, acc);
 
@@ -727,12 +733,25 @@ namespace datalog {
             //(If behavior the join changes so that it is not enforced anymore, remove this
             //condition!)
             if (pt_len >= 2) {
+              // only analyze belongs_to when we reach here, and only once
+              if (offsets.empty()) {
+                offsets.push_back(0);
+                unsigned_vector::const_iterator belongs_it = belongs_to.begin(), belongs_end = belongs_to.end() - 1;
+                for (unsigned i = 1; belongs_it != belongs_end; ++belongs_it, ++i) {
+                  if (*belongs_it != *(belongs_it + 1)) {
+                    offsets.push_back(i);
+                  }
+                }
+                offsets.push_back(single_res_expr.size());
+              }
+
               // check if all indexes are from a single predicate
               unsigned_vector::const_iterator it = offsets.begin(), end = offsets.end() - 1;
               bool var_in_single_interval = false;
               // if var_in_single_interval turns true, early exit
               for (; it != end && !var_in_single_interval; ++it) {
                 int lower = *it, upper = *(it + 1);
+                SASSERT(lower <= upper);
                 int min_index = indexes[0], max_index = indexes.back();
                 var_in_single_interval |= (lower <= min_index && max_index < upper);
               }

@@ -212,7 +212,7 @@ namespace datalog {
           unsigned_vector & res);
 
         void compile_join_project(rule * r, const reg_idx * tail_regs, const ast_manager & m,
-          unsigned pt_len, unsigned_vector & offsets, reg_idx & single_res,
+          unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
           expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc);
 
         /**
