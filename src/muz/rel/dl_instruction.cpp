@@ -1341,17 +1341,22 @@ namespace datalog {
     class instr_exec : public instruction {
       rule * r;
       reg_idx head_reg;
-      const reg_idx * tail_regs;
+      svector<reg_idx> tail_regs; // TODO (why) is this okay with alloc?
       reg_idx delta_reg;
       bool use_widening;
-      instruction_block acc;
+      instruction_block acc; // TODO pointer?
     public:
-      instr_exec(rule * r, reg_idx head_reg, const reg_idx * tail_regs,
+      instr_exec(rule * r, reg_idx head_reg, const reg_idx * regs,
         reg_idx delta_reg, bool use_widening)
-        : r(r), head_reg(head_reg), tail_regs(tail_regs), delta_reg(delta_reg), use_widening(use_widening) {}
+        : r(r), head_reg(head_reg), delta_reg(delta_reg), use_widening(use_widening) {
+        for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
+          tail_regs.push_back(regs[i]);
+        }
+      }
       virtual bool perform(execution_context & ctx) {
         // caching
         if (acc.num_instructions() != 0) {
+          TRACE("dl", tout << "perform on cached instructions\n";);
           acc.perform(ctx);
           return true;
         }
@@ -1376,9 +1381,9 @@ namespace datalog {
         // whether to dealloc the previous result
         bool dealloc = true;
 
-        g_compiler->compile_join_project(r, tail_regs, m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
+        g_compiler->compile_join_project(r, tail_regs.c_ptr(), m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
 
-        g_compiler->add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, acc);
+        g_compiler->add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, ctx, acc);
 
         int2ints var_indexes;
 
@@ -1479,7 +1484,7 @@ namespace datalog {
             else {
               // we have an unbound variable, so we add an unbound column for it
               relation_sort unbound_sort = g_compiler->m_free_vars[v];
-              g_compiler->make_add_unbound_column(r, 0, head_pred, filtered_res, unbound_sort, filtered_res, dealloc, acc);
+              g_compiler->make_add_unbound_column(r, 0, head_pred, filtered_res, unbound_sort, filtered_res, dealloc, ctx, acc);
 
               src_col = single_res_expr.size();
               single_res_expr.push_back(m.mk_var(v, unbound_sort));
@@ -1495,7 +1500,7 @@ namespace datalog {
         // add at least one column for the negative filter
         if (pt_len != ut_len && filtered_res == execution_context::void_register) {
           relation_signature empty_signature;
-          g_compiler->make_full_relation(head_pred, empty_signature, filtered_res, acc);
+          g_compiler->make_full_relation(head_pred, empty_signature, filtered_res, ctx, acc);
         }
 
         //enforce negative predicates
@@ -1516,7 +1521,7 @@ namespace datalog {
             SASSERT(is_app(e));
             relation_sort arg_sort;
             g_compiler->m_context.get_rel_context()->get_rmanager().from_predicate(neg_pred, i, arg_sort);
-            g_compiler->make_add_constant_column(head_pred, filtered_res, arg_sort, to_app(e), filtered_res, dealloc, acc);
+            g_compiler->make_add_constant_column(head_pred, filtered_res, arg_sort, to_app(e), filtered_res, dealloc, ctx, acc);
 
             t_cols.push_back(single_res_expr.size());
             neg_cols.push_back(i);
@@ -1706,7 +1711,7 @@ namespace datalog {
           SASSERT(head_acis.size() == head_len);
 
           reg_idx new_head_reg;
-          g_compiler->make_assembling_code(r, head_pred, filtered_res, head_acis, new_head_reg, dealloc, acc);
+          g_compiler->make_assembling_code(r, head_pred, filtered_res, head_acis, new_head_reg, dealloc, ctx, acc);
 
           //update the head relation
           g_compiler->make_union(new_head_reg, head_reg, delta_reg, use_widening, acc);
@@ -1717,11 +1722,12 @@ namespace datalog {
         //    finish:
         g_compiler->m_instruction_observer.finish_rule();
         
-
+        TRACE("dl", tout << "executing acc\n";);
+        acc.perform(ctx);
         return true;
       }
       virtual void display_head_impl(execution_context const& ctx, std::ostream & out) const {
-        out << "exec";
+        out << "exec ";
       }
       virtual void make_annotations(execution_context & ctx) {
 

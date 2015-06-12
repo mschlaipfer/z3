@@ -178,20 +178,20 @@ namespace datalog {
            with empty signature.
         */
         void make_assembling_code(rule* compiled_rule, func_decl* head_pred, reg_idx src, const svector<assembling_column_info> & acis0,
-            reg_idx & result, bool & dealloc, instruction_block & acc);
+            reg_idx & result, bool & dealloc, execution_context & ctx, instruction_block & acc);
 
         void make_dealloc_non_void(reg_idx r, instruction_block & acc);
 
         void make_add_constant_column(func_decl* pred, reg_idx src, const relation_sort s, const relation_element val,
-            reg_idx & result, bool & dealloc, instruction_block & acc);
+            reg_idx & result, bool & dealloc, execution_context & ctx, instruction_block & acc);
 
         void make_add_unbound_column(rule* compiled_rule, unsigned col_idx, func_decl* pred, reg_idx src, const relation_sort s, reg_idx & result,
-            bool & dealloc, instruction_block & acc);
+            bool & dealloc, execution_context & ctx, instruction_block & acc);
         void make_full_relation(func_decl* pred, const relation_signature & sig, reg_idx & result, 
-            instruction_block & acc);
+            execution_context & ctx, instruction_block & acc);
 
         void add_unbound_columns_for_negation(rule* compiled_rule, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr,
-                                              bool & dealloc, instruction_block& acc);
+            bool & dealloc, execution_context & ctx, instruction_block& acc);
         
         void make_duplicate_column(reg_idx src, unsigned col, reg_idx & result, bool reuse, instruction_block & acc);
         
@@ -220,7 +220,7 @@ namespace datalog {
            \c head_reg, and add the facts that were not in \c head_reg before into \c delta_reg.
         */
         void compile_rule_evaluation_run(rule * r, reg_idx head_reg, const reg_idx * tail_regs, 
-            reg_idx delta_reg, bool use_widening, instruction_block & acc);
+            reg_idx delta_reg, bool use_widening, execution_context & ctx, instruction_block & acc);
 
         void compile_rule_evaluation(rule * r, const pred2idx * input_deltas, reg_idx output_delta, 
             bool use_widening, instruction_block & acc);

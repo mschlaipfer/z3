@@ -152,7 +152,7 @@ namespace datalog {
             m_code.reset();
             termination_code.reset();
             m_context.ensure_closed();
-            //transform_rules();
+            transform_rules();
             if (m_context.canceled()) {
                 result = l_undef;
                 break;

@@ -199,12 +199,11 @@ namespace datalog {
     }
 
     void compiler::make_add_constant_column(func_decl* head_pred, reg_idx src, const relation_sort s, const relation_element val,
-            reg_idx & result, bool & dealloc, instruction_block & acc) {
+        reg_idx & result, bool & dealloc, execution_context & ctx, instruction_block & acc) {
         reg_idx singleton_table;
         if(!m_constant_registers.find(s, val, singleton_table)) {
             singleton_table = get_single_column_register(s);
-            m_top_level_code.push_back(
-                instruction::mk_unary_singleton(m_context.get_manager(), head_pred, s, val, singleton_table));
+            instruction::mk_unary_singleton(m_context.get_manager(), head_pred, s, val, singleton_table)->perform(ctx);
             m_constant_registers.insert(s, val, singleton_table);
         }
         if(src==execution_context::void_register) {
@@ -219,7 +218,7 @@ namespace datalog {
     }
 
     void compiler::make_add_unbound_column(rule* compiled_rule, unsigned col_idx, func_decl* pred, reg_idx src, const relation_sort s, reg_idx & result,
-            bool & dealloc, instruction_block & acc) {
+        bool & dealloc, execution_context & ctx, instruction_block & acc) {
         
         TRACE("dl", tout << "Adding unbound column " << mk_pp(pred, m_context.get_manager()) << "\n";);
             IF_VERBOSE(3, { 
@@ -233,7 +232,7 @@ namespace datalog {
             total_table = get_single_column_register(s);
             relation_signature sig;
             sig.push_back(s);
-            m_top_level_code.push_back(instruction::mk_total(sig, pred, total_table));
+            instruction::mk_total(sig, pred, total_table)->perform(ctx);
             m_total_registers.insert(s, pred, total_table);
         }       
         if(src == execution_context::void_register) {
@@ -248,14 +247,14 @@ namespace datalog {
     }
 
     void compiler::make_full_relation(func_decl* pred, const relation_signature & sig, reg_idx & result, 
-            instruction_block & acc) {
+        execution_context & ctx, instruction_block & acc) {
         SASSERT(sig.empty());
         TRACE("dl", tout << "Adding unbound column " << mk_pp(pred, m_context.get_manager()) << "\n";);
         if (m_empty_tables_registers.find(pred, result))
             return;
 
         result = get_fresh_register(sig);
-        m_top_level_code.push_back(instruction::mk_total(sig, pred, result));
+        instruction::mk_total(sig, pred, result)->perform(ctx);
         m_empty_tables_registers.insert(pred, result);
     }
 
@@ -300,6 +299,7 @@ namespace datalog {
         const svector<assembling_column_info> & acis0,
         reg_idx &           result, 
         bool & dealloc,
+        execution_context & ctx,
         instruction_block & acc) {
 
         TRACE("dl", tout << mk_pp(head_pred, m_context.get_manager()) << "\n";);
@@ -364,11 +364,11 @@ namespace datalog {
             if(acis[i].kind!=ACK_UNBOUND_VAR || !handled_unbound.find(acis[i].var_index,bound_column_index)) {
                 bound_column_index=curr_sig->size();
                 if(acis[i].kind==ACK_CONSTANT) {
-                    make_add_constant_column(head_pred, curr, acis[i].domain, acis[i].constant, curr, dealloc, acc);
+                    make_add_constant_column(head_pred, curr, acis[i].domain, acis[i].constant, curr, dealloc, ctx, acc);
                 }
                 else {
                     SASSERT(acis[i].kind==ACK_UNBOUND_VAR);
-                    make_add_unbound_column(compiled_rule, i, head_pred, curr, acis[i].domain, curr, dealloc, acc);
+                    make_add_unbound_column(compiled_rule, i, head_pred, curr, acis[i].domain, curr, dealloc, ctx, acc);
                     handled_unbound.insert(acis[i].var_index,bound_column_index);
                 }
                 curr_sig = & m_reg_signatures[curr];
@@ -422,7 +422,7 @@ namespace datalog {
         if(curr==execution_context::void_register) {
             SASSERT(src==execution_context::void_register);
             SASSERT(acis0.size()==0);
-            make_full_relation(head_pred, empty_signature, curr, acc);
+            make_full_relation(head_pred, empty_signature, curr, ctx, acc);
             dealloc = false;
         }
 
@@ -663,7 +663,7 @@ namespace datalog {
         dealloc = false;
       }
     }
-
+    /*
     void compiler::compile_rule_evaluation_run(rule * r, reg_idx head_reg, const reg_idx * tail_regs, 
             reg_idx delta_reg, bool use_widening, instruction_block & acc) {
         
@@ -1027,9 +1027,9 @@ namespace datalog {
 //    finish:
         m_instruction_observer.finish_rule();
     }
-
+    */
     void compiler::add_unbound_columns_for_negation(rule* r, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr, 
-                                                    bool & dealloc, instruction_block & acc) {
+        bool & dealloc, execution_context & ctx, instruction_block & acc) {
         uint_set pos_vars;
         u_map<expr*> neg_vars;
         ast_manager& m = m_context.get_manager();
@@ -1066,7 +1066,7 @@ namespace datalog {
             expr* e = it->m_value;
             if (!pos_vars.contains(v)) {
                 single_res_expr.push_back(e);
-                make_add_unbound_column(r, v, pred, single_res, m.get_sort(e), single_res, dealloc, acc);
+                make_add_unbound_column(r, v, pred, single_res, m.get_sort(e), single_res, dealloc, ctx, acc);
                 TRACE("dl", tout << "Adding unbound column: " << mk_pp(e, m) << "\n";);
             }
         }
@@ -1096,7 +1096,6 @@ namespace datalog {
         }
 
         if(!input_deltas || all_or_nothing_deltas()) {
-          TRACE("dl", tout << "pushing exec1\n";);
             acc.push_back(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening));
         }
         else {
@@ -1105,7 +1104,6 @@ namespace datalog {
             for(; tdit!=tdend; ++tdit) {
                 tail_delta_info tdinfo = *tdit;
                 flet<reg_idx> flet_tail_reg(tail_regs[tdinfo.second], tdinfo.first);
-                TRACE("dl", tout << "pushing exec2\n";);
                 acc.push_back(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening));
             }
         }
