@@ -1337,6 +1337,8 @@ namespace datalog {
     instruction * instruction::mk_assert_signature(const relation_signature & s, reg_idx tgt) {
         return alloc(instr_assert_signature, s, tgt);
     }
+
+#define INTERPRETED_FIRST
     extern compiler * g_compiler;
     class instr_exec : public instruction {
       rule * r;
@@ -1345,6 +1347,146 @@ namespace datalog {
       reg_idx delta_reg;
       bool use_widening;
       instruction_block acc; // TODO pointer?
+    private:
+
+      void compute_var_indexes(app * pred, int2ints &var_indexes) {
+        //enforce equality to constants
+        unsigned len = pred->get_num_args();
+        for (unsigned i = 0; i < len; i++) {
+          expr * exp = pred->get_arg(i);
+          if (is_var(exp)) {
+            unsigned var_num = to_var(exp)->get_idx();
+            int2ints::entry * e = var_indexes.insert_if_not_there2(var_num, unsigned_vector());
+            e->get_data().m_value.push_back(i);
+          }
+        }
+
+        TRACE("dl", for (int2ints::iterator I = var_indexes.begin(), E = var_indexes.end();
+          I != E; ++I) {
+          tout << I->m_key << ": "; print_container(I->m_value, tout); tout << "\n";
+        });
+      }
+
+      void handle_interpreted_tail(unsigned pt_len, unsigned ut_len, unsigned ft_len,
+        bool dealloc, int_set &applied_interp_pred, ast_manager & m, 
+        vector<expr_ref_vector> & res_exprs) {
+        
+        for (unsigned i = 0; i < pt_len; ++i) {
+          expr_ref_vector single_res_expr(m);
+          int2ints var_indexes;
+          reg_idx pos_res = tail_regs[i];
+          app * pos_pred = r->get_tail(i);
+          compute_var_indexes(pos_pred, var_indexes);
+
+          ptr_vector<expr> tail;
+          for (unsigned tail_index = ut_len; tail_index < ft_len; ++tail_index) {
+            app * interp_pred = r->get_tail(tail_index);
+            unsigned len = interp_pred->get_num_args();
+            for (unsigned i = 0; i < len; i++) {
+              expr * exp = interp_pred->get_arg(i);
+              if (is_var(exp) && var_indexes.contains(to_var(exp)->get_idx())) {
+                tail.push_back(r->get_tail(tail_index));
+                applied_interp_pred.insert_if_not_there(tail_index);
+                continue;
+              }
+            }
+          }
+          // enforce interpreted tail predicates
+          if (!tail.empty()) {
+
+            app_ref filter_cond(tail.size() == 1 ? to_app(tail.back()) : m.mk_and(tail.size(), tail.c_ptr()), m);
+            g_compiler->m_free_vars(filter_cond);
+            // create binding
+            expr_ref_vector binding(m);
+            binding.resize(g_compiler->m_free_vars.size() + 1);
+            for (unsigned v = 0; v < g_compiler->m_free_vars.size(); ++v) {
+              if (!g_compiler->m_free_vars[v])
+                continue;
+
+              int2ints::entry * entry = var_indexes.find_core(v);
+              unsigned src_col;
+              if (entry) {
+                src_col = entry->get_data().m_value.back();
+              }
+              else {
+                SASSERT(false); // only filter when intersection of vars is non-empty
+              }
+              relation_sort var_sort = g_compiler->m_reg_signatures[pos_res][src_col];
+              binding[g_compiler->m_free_vars.size() - v] = m.mk_var(src_col, var_sort);
+            }
+
+            
+            // check if there are any columns to remove
+            unsigned_vector remove_columns;
+            {
+              unsigned_vector var_idx_to_remove;
+              g_compiler->m_free_vars(r->get_head());
+              for (int2ints::iterator I = var_indexes.begin(), E = var_indexes.end();
+                I != E; ++I) {
+                unsigned var_idx = I->m_key;
+                if (!g_compiler->m_free_vars.contains(var_idx)) {
+                  unsigned_vector & cols = I->m_value;
+                  for (unsigned i = 0; i < cols.size(); ++i) {
+                    remove_columns.push_back(cols[i]);
+                  }
+                  var_idx_to_remove.push_back(var_idx);
+                }
+                else {
+                  TRACE("dl", tout << "not projecting: " << var_idx << "\n";);
+                  single_res_expr.push_back(pos_pred->get_arg(I->m_key));
+                }
+              }
+              res_exprs.push_back(single_res_expr);
+
+              for (unsigned i = 0; i < var_idx_to_remove.size(); ++i) {
+                var_indexes.remove(var_idx_to_remove[i]);
+              }
+
+              // update column idx for after projection state
+              if (!remove_columns.empty()) {
+                unsigned_vector offsets;
+                offsets.resize(pos_pred->get_num_args(), 0);
+
+                for (unsigned i = 0; i < remove_columns.size(); ++i) {
+                  for (unsigned col = remove_columns[i]; col < offsets.size(); ++col) {
+                    ++offsets[col];
+                  }
+                }
+
+                for (int2ints::iterator I = var_indexes.begin(), E = var_indexes.end();
+                  I != E; ++I) {
+                  unsigned_vector & cols = I->m_value;
+                  for (unsigned i = 0; i < cols.size(); ++i) {
+                    cols[i] -= offsets[cols[i]];
+                  }
+                }
+              }
+            }
+            TRACE("dl", tout << "projecting: "; print_container(remove_columns, tout); tout << "\n";);
+            
+            expr_ref renamed(m);
+            g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
+            app_ref app_renamed(to_app(renamed), m);
+            if (remove_columns.empty()) {
+              if (!dealloc)
+                g_compiler->make_clone(pos_res, pos_res, acc);
+              acc.push_back(instruction::mk_filter_interpreted(pos_res, app_renamed));
+            }
+            else {
+              std::sort(remove_columns.begin(), remove_columns.end());
+              g_compiler->make_filter_interpreted_and_project(pos_res, app_renamed, remove_columns, pos_res, dealloc, acc);
+            }
+
+            dealloc = true;
+          }
+          else {
+            res_exprs.push_back(expr_ref_vector(m, pos_pred->get_num_args(), pos_pred->get_args()));
+          }
+        }
+
+
+      }
+
     public:
       instr_exec(rule * r, reg_idx head_reg, const reg_idx * regs,
         reg_idx delta_reg, bool use_widening)
@@ -1356,7 +1498,8 @@ namespace datalog {
       virtual bool perform(execution_context & ctx) {
         // caching
         if (acc.num_instructions() != 0) {
-          TRACE("dl", tout << "perform on cached instructions\n";);
+          //acc.reset(); // recomputing every time
+          TRACE("dl", tout << "executing cache\n";);
           acc.perform(ctx);
           return true;
         }
@@ -1370,6 +1513,8 @@ namespace datalog {
         TRACE("dl", r->display(g_compiler->m_context, tout););
 
         unsigned pt_len = r->get_positive_tail_size();
+        unsigned ut_len = r->get_uninterpreted_tail_size();
+        unsigned ft_len = r->get_tail_size(); // full tail
 
         reg_idx single_res;
         expr_ref_vector single_res_expr(m);
@@ -1381,7 +1526,30 @@ namespace datalog {
         // whether to dealloc the previous result
         bool dealloc = true;
 
-        g_compiler->compile_join_project(r, tail_regs.c_ptr(), m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
+
+        TRACE("stats",
+          for (unsigned i = 0; i < pt_len; ++i) {
+            if (ctx.reg(tail_regs[i]))
+              tout << i << " before size: " << ctx.reg(tail_regs[i])->get_size_estimate_rows() << "\n";
+            else
+              tout << i << " before size: 0\n";
+          }
+        );
+
+#ifdef INTERPRETED_FIRST
+        int_set applied_interp_pred;
+        vector<expr_ref_vector> res_exprs;
+        handle_interpreted_tail(pt_len, ut_len, ft_len, dealloc, applied_interp_pred, m, res_exprs);
+#endif
+        TRACE("stats",
+          for (unsigned i = 0; i < pt_len; ++i) {
+            if (ctx.reg(tail_regs[i]))
+              tout << i << " after size: " << ctx.reg(tail_regs[i])->get_size_estimate_rows() << "\n";
+            else
+              tout << i << " after size: 0\n";
+          }
+        );
+        g_compiler->compile_join_project(r, res_exprs, tail_regs.c_ptr(), m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
 
         g_compiler->add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, ctx, acc);
 
@@ -1459,12 +1627,15 @@ namespace datalog {
 
 
         // add unbounded columns for interpreted filter
-        unsigned ut_len = r->get_uninterpreted_tail_size();
-        unsigned ft_len = r->get_tail_size(); // full tail
         ptr_vector<expr> tail;
         for (unsigned tail_index = ut_len; tail_index < ft_len; ++tail_index) {
-          tail.push_back(r->get_tail(tail_index));
+        #ifdef INTERPRETED_FIRST
+          if (!applied_interp_pred.contains(tail_index))
+        #endif
+            tail.push_back(r->get_tail(tail_index));
         }
+
+        TRACE("dl", tout << "tail: "; print_container(tail, tout); tout << "\n";);
 
         expr_ref_vector binding(m);
         if (!tail.empty()) {
@@ -1537,6 +1708,7 @@ namespace datalog {
           dealloc = true;
         }
 
+//#ifndef INTERPRETED_FIRST
         // enforce interpreted tail predicates
         if (!tail.empty()) {
           app_ref filter_cond(tail.size() == 1 ? to_app(tail.back()) : m.mk_and(tail.size(), tail.c_ptr()), m);
@@ -1597,6 +1769,7 @@ namespace datalog {
           }
           dealloc = true;
         }
+//#endif
 
 #if 0
         // this version is potentially better for non-symbolic tables,
@@ -1722,7 +1895,7 @@ namespace datalog {
         //    finish:
         g_compiler->m_instruction_observer.finish_rule();
         
-        TRACE("dl", tout << "executing acc\n";);
+        TRACE("dl", tout << "executing\n";);
         acc.perform(ctx);
         return true;
       }
