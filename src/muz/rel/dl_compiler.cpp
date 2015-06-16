@@ -442,7 +442,8 @@ namespace datalog {
         }
     }    
     
-    void compiler::get_local_indexes_for_projection(rule * r, vector<expr_ref_vector> & tail_preds, const expr_ref_vector & intm_result,
+    void compiler::get_local_indexes_for_projection(rule *r, vector<expr_ref_vector> & pos_tail_preds,
+      int_set &applied_interp_pred, const expr_ref_vector & intm_result,
       unsigned tail_offset, unsigned_vector & res) {
       rule_counter counter;
       // leave one column copy per var in the head (avoids later duplication)
@@ -453,11 +454,12 @@ namespace datalog {
       unsigned n = r->get_tail_size();
       if (n > tail_offset) {
         rule_counter counter_tail;
-        for (unsigned i = tail_offset; i < n; ++i) {
-          if (i < tail_preds.size())
-            counter_tail.count_vars(tail_preds[i]);
-          else // TODO if not yet used in filter?
-            counter_tail.count_vars(r->get_tail(i));
+
+        for (unsigned i = tail_offset; i < pos_tail_preds.size(); ++i) { // rest of pos
+          counter_tail.count_vars(pos_tail_preds[i]);
+        }
+        for (unsigned i = r->get_positive_tail_size(); i < r->get_uninterpreted_tail_size(); ++i) { // neg
+          counter_tail.count_vars(r->get_tail(i));
         }
 
         rule_counter::iterator I = counter_tail.begin(), E = counter_tail.end();
@@ -468,7 +470,7 @@ namespace datalog {
         }
       }
 
-      expr_ref_vector t2 = tail_preds.get(tail_offset - 1);
+      expr_ref_vector t2 = pos_tail_preds[tail_offset - 1];
       counter.count_vars(intm_result);
       counter.count_vars(t2);
 
@@ -476,8 +478,8 @@ namespace datalog {
       get_local_indexes_for_projection(t2, counter, intm_result.size(), res);
     }
 
-    void compiler::compile_join_project(rule *r, vector<expr_ref_vector> & tail_preds,
-        const reg_idx * tail_regs, const ast_manager & m, 
+    void compiler::compile_join_project(rule *r, vector<expr_ref_vector> & pos_tail_preds,
+        const reg_idx * tail_regs, int_set &applied_interp_pred, const ast_manager & m,
         unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res, 
         expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc) {
 
@@ -488,20 +490,20 @@ namespace datalog {
         bool no_projection = true;
         // initialize intermediate result with first positive tail predicate
 
-        for (unsigned i = 0; i < tail_preds[0].size(); ++i) {
-          single_res_expr.push_back(tail_preds[0].get(i));
+        for (unsigned i = 0; i < pos_tail_preds[0].size(); ++i) {
+          single_res_expr.push_back(pos_tail_preds[0].get(i));
           belongs_to.push_back(0);
         }
         SASSERT(m_reg_signatures[tail_regs[0]].size() == single_res_expr.size());
         for (unsigned i = 1; i < pt_len; ++i) {
-          expr_ref_vector a2 = tail_preds[i];
+          expr_ref_vector a2 = pos_tail_preds[i];
           SASSERT(m_reg_signatures[tail_regs[i]].size() == a2.size());
 
           variable_intersection a1a2(m_context.get_manager());
           a1a2.populate(single_res_expr, a2);
 
           unsigned_vector curr_removed_cols;
-          get_local_indexes_for_projection(r, tail_preds, single_res_expr, i + 1, curr_removed_cols);
+          get_local_indexes_for_projection(r, pos_tail_preds, applied_interp_pred, single_res_expr, i + 1, curr_removed_cols);
           no_projection &= curr_removed_cols.empty();
           
           join_cols.push_back(a1a2);
@@ -550,8 +552,8 @@ namespace datalog {
       else if (pt_len == 2) {
         reg_idx t1_reg = tail_regs[0];
         reg_idx t2_reg = tail_regs[1];
-        expr_ref_vector a1 = tail_preds[0];
-        expr_ref_vector a2 = tail_preds[1];
+        expr_ref_vector a1 = pos_tail_preds[0];
+        expr_ref_vector a2 = pos_tail_preds[1];
         SASSERT(m_reg_signatures[t1_reg].size() == a1.size());
         SASSERT(m_reg_signatures[t2_reg].size() == a2.size());
 
@@ -559,7 +561,7 @@ namespace datalog {
         a1a2.populate(a1, a2);
 
         unsigned_vector removed_cols;
-        get_local_indexes_for_projection(r, tail_preds, a1, 2, removed_cols);
+        get_local_indexes_for_projection(r, pos_tail_preds, applied_interp_pred, a1, 2, removed_cols);
 
         if (removed_cols.empty()) {
           make_join(t1_reg, t2_reg, a1a2, single_res, false, acc);
@@ -593,11 +595,11 @@ namespace datalog {
         SASSERT(rem_index == rem_sz);
       }
       else if (pt_len == 1) {
-        expr_ref_vector a = tail_preds[0];
+        expr_ref_vector a = pos_tail_preds[0];
         single_res = tail_regs[0];
         dealloc = false;
-
-        SASSERT(m_reg_signatures[single_res].size() == a.size());
+        TRACE("dl", tout << "sig size: " << m_reg_signatures[single_res].size() << " vs expr size " << a.size() << "\n";);
+        SASSERT(m_reg_signatures[single_res].size() == a.size());  // TODO
 
         unsigned n = a.size();
         for (unsigned i = 0; i<n; i++) {
