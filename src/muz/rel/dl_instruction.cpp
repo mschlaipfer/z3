@@ -1474,15 +1474,15 @@ namespace datalog {
               // TODO erase ok?
               expr_ref_vector tmp(m);
               for (unsigned k = 0, j = 0; k < res_expr.size(); ++k) {
-                if (remove_columns[j] != k) {
-                  tmp.push_back(res_expr.get(k));
+                if (j < remove_columns.size() && remove_columns[j] == k) {
+                  ++j; // removing col by advancing k without push_back 
                 }
                 else {
-                  ++j;
+                  tmp.push_back(res_expr.get(k));
                 }
               }
               res_expr.swap(tmp);
-
+              dealloc = false; // TODO
               g_compiler->make_filter_interpreted_and_project(tail_regs[i], app_renamed, remove_columns, tail_regs[i], dealloc, acc);
             }
             dealloc = true;
@@ -1541,7 +1541,7 @@ namespace datalog {
           }
         );
 
-        // TODO recompute every time
+        // using expr_ref_vector instead of app* for updating tail predicates
         vector<expr_ref_vector> pos_tail_preds;
         for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
           pos_tail_preds.push_back(expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args()));

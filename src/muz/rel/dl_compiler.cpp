@@ -90,9 +90,11 @@ namespace datalog {
     void compiler::make_join(reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result, 
             bool reuse_t1, instruction_block & acc) {
         relation_signature res_sig;
+        TRACE("dl", tout << "t1 size: " << m_reg_signatures[t1].size() << " t2 size: " << m_reg_signatures[t2].size() << "\n";);
         relation_signature::from_join(m_reg_signatures[t1], m_reg_signatures[t2], vars.size(), 
             vars.get_cols1(), vars.get_cols2(), res_sig);
         result = get_register(res_sig, reuse_t1, t1);
+        TRACE("dl", tout << "result size: " << m_reg_signatures[result].size() << "\n";);
         acc.push_back(instruction::mk_join(t1, t2, vars.size(), vars.get_cols1(), vars.get_cols2(), result));
         ///*acc.push_back*/(instruction::mk_join(t1, t2, vars.size(), vars.get_cols1(), vars.get_cols2(), result)->perform(m_ectx));
     }
@@ -220,17 +222,20 @@ namespace datalog {
         reg_idx & result, bool & dealloc, execution_context & ctx, instruction_block & acc) {
         reg_idx singleton_table;
         if(!m_constant_registers.find(s, val, singleton_table)) {
+          TRACE("dl", tout << "Adding constant column 1\n";);
             singleton_table = get_single_column_register(s);
             instruction * instr = instruction::mk_unary_singleton(m_context.get_manager(), head_pred, s, val, singleton_table);
             instr->perform(ctx);
             instruction_bin.push_back(instr);
             m_constant_registers.insert(s, val, singleton_table);
         }
-        if(src==execution_context::void_register) {
+        if (src == execution_context::void_register) {
+          TRACE("dl", tout << "Adding constant column 2\n";);
             result = singleton_table;
             SASSERT(dealloc == false);
         }
         else {
+          TRACE("dl", tout << "Adding constant column 3\n";);
             variable_intersection empty_vars(m_context.get_manager());
             make_join(src, singleton_table, empty_vars, result, dealloc, acc);
             dealloc = true;
@@ -623,8 +628,8 @@ namespace datalog {
         expr_ref_vector a = pos_tail_preds[0];
         single_res = tail_regs[0];
         dealloc = false;
-        TRACE("dl", tout << "sig size: " << m_reg_signatures[single_res].size() << " vs expr size " << a.size() << "\n";);
-        SASSERT(m_reg_signatures[single_res].size() == a.size());  // TODO
+        TRACE("dl", tout << "sig " << single_res << " size: " << m_reg_signatures[single_res].size() << " vs expr size " << a.size() << "\n";);
+        SASSERT(m_reg_signatures[single_res].size() == a.size());
 
         unsigned n = a.size();
         for (unsigned i = 0; i<n; i++) {
