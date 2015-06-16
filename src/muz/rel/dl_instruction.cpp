@@ -1547,6 +1547,7 @@ namespace datalog {
           pos_tail_preds.push_back(expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args()));
         }
 
+
 #ifdef INTERPRETED_FIRST
         handle_interpreted_tail(ut_len, ft_len, head_pred, dealloc, m, pos_tail_preds, ctx);
 #endif // TODO proper ifdefs for other case

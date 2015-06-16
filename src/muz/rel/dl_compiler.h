@@ -120,7 +120,10 @@ namespace datalog {
         instruction_observer              m_instruction_observer;
         expr_free_vars                    m_free_vars;
 
+        // TODO
         execution_context m_ectx;
+        // for cleaning up insructions that are executed right away.
+        instruction_block instruction_bin;
 
         /**
            If true, the union operation on the underlying structure only provides the information

@@ -34,6 +34,7 @@ namespace datalog {
 
     void compiler::reset() {
         m_pred_regs.reset();
+        instruction_bin.reset(); // cleaning up instructions that are performed right away
     }
 
     void compiler::ensure_predicate_loaded(func_decl * pred, instruction_block & acc) {
@@ -220,7 +221,9 @@ namespace datalog {
         reg_idx singleton_table;
         if(!m_constant_registers.find(s, val, singleton_table)) {
             singleton_table = get_single_column_register(s);
-            instruction::mk_unary_singleton(m_context.get_manager(), head_pred, s, val, singleton_table)->perform(ctx);
+            instruction * instr = instruction::mk_unary_singleton(m_context.get_manager(), head_pred, s, val, singleton_table);
+            instr->perform(ctx);
+            instruction_bin.push_back(instr);
             m_constant_registers.insert(s, val, singleton_table);
         }
         if(src==execution_context::void_register) {
@@ -249,7 +252,9 @@ namespace datalog {
             total_table = get_single_column_register(s);
             relation_signature sig;
             sig.push_back(s);
-            instruction::mk_total(sig, pred, total_table)->perform(ctx);
+            instruction *instr = instruction::mk_total(sig, pred, total_table);
+            instr->perform(ctx);
+            instruction_bin.push_back(instr);
             m_total_registers.insert(s, pred, total_table);
         }       
         if(src == execution_context::void_register) {
@@ -271,7 +276,9 @@ namespace datalog {
             return;
 
         result = get_fresh_register(sig);
-        instruction::mk_total(sig, pred, result)->perform(ctx);
+        instruction *instr = instruction::mk_total(sig, pred, result);
+        instr->perform(ctx);
+        instruction_bin.push_back(instr);
         m_empty_tables_registers.insert(pred, result);
     }
 
