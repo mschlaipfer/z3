@@ -189,14 +189,15 @@ unsigned read_datalog(char const * file) {
             ctx.get_rel_context()->transform_rules();
             
             SASSERT(false); // TODO we don't support this here
-            datalog::compiler::compile(ctx, ctx.get_rules(), rules_code, termination_code);
+            datalog::compiler::compile(ctx, ctx.get_rules(), rules_code, termination_code, ex_ctx);
             
             TRACE("dl_compiler", rules_code.display(ex_ctx, tout););
             
             rules_code.make_annotations(ex_ctx);
             
             ex_ctx.set_timelimit(timeout);
-            
+
+            // TODO move up when removing rules_code
             early_termination = !rules_code.perform(ex_ctx);
             if(early_termination) {
                 IF_VERBOSE(10, ex_ctx.report_big_relations(1000, verbose_stream()););

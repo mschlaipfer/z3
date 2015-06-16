@@ -1367,13 +1367,14 @@ namespace datalog {
         });
       }
 
-      void handle_interpreted_tail(unsigned pt_len, unsigned ut_len, unsigned ft_len,
-        func_decl * head_pred, bool dealloc, int_set &applied_interp_pred, ast_manager & m, 
+      void handle_interpreted_tail(unsigned ut_len, unsigned ft_len,
+        func_decl * head_pred, bool dealloc, ast_manager & m, 
         vector<expr_ref_vector> & res_preds, execution_context & ctx) {
-        
-        for (unsigned i = 0; i < pt_len; ++i) {
+        unsigned i = 0;
+        for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
+          it != end; ++it, ++i) {
 
-          expr_ref_vector res_expr(m, r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args());
+          expr_ref_vector &res_expr = *it;
           int2ints var_indexes;
           compute_var_indexes(res_expr, var_indexes);
 
@@ -1427,7 +1428,7 @@ namespace datalog {
                   unsigned_vector & cols = I->m_value;
                   for (unsigned i = 0; i < cols.size(); ++i) {
                     remove_columns.push_back(cols[i]);
-                    // res_expr.erase(cols[i]); TODO
+                    //res_expr.erase(cols[i]);// TODO
                   }
                   var_idx_to_remove.push_back(var_idx);
                 }
@@ -1465,10 +1466,11 @@ namespace datalog {
               if (!dealloc)
                 g_compiler->make_clone(tail_regs[i], tail_regs[i], acc);
               acc.push_back(instruction::mk_filter_interpreted(tail_regs[i], app_renamed));
+              ///*acc.push_back*/(instruction::mk_filter_interpreted(tail_regs[i], app_renamed)->perform(g_compiler->m_ectx));
             }
             else {
               std::sort(remove_columns.begin(), remove_columns.end());
-
+              TRACE("dl", tout << "remove_columns: "; print_container(remove_columns, tout); tout << "\n";);
               // TODO erase ok?
               expr_ref_vector tmp(m);
               for (unsigned k = 0, j = 0; k < res_expr.size(); ++k) {
@@ -1485,7 +1487,6 @@ namespace datalog {
             }
             dealloc = true;
           }
-          res_preds.push_back(res_expr);
         }
 
 
@@ -1540,10 +1541,14 @@ namespace datalog {
           }
         );
 
-#ifdef INTERPRETED_FIRST
-        int_set applied_interp_pred;
+        // TODO recompute every time
         vector<expr_ref_vector> pos_tail_preds;
-        handle_interpreted_tail(pt_len, ut_len, ft_len, head_pred, dealloc, applied_interp_pred, m, pos_tail_preds, ctx);
+        for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
+          pos_tail_preds.push_back(expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args()));
+        }
+
+#ifdef INTERPRETED_FIRST
+        handle_interpreted_tail(ut_len, ft_len, head_pred, dealloc, m, pos_tail_preds, ctx);
 #endif // TODO proper ifdefs for other case
         TRACE("stats",
           for (unsigned i = 0; i < pt_len; ++i) {
@@ -1553,7 +1558,7 @@ namespace datalog {
               tout << i << " after size: 0\n";
           }
         );
-        g_compiler->compile_join_project(r, pos_tail_preds, tail_regs.c_ptr(), applied_interp_pred, m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
+        g_compiler->compile_join_project(r, pos_tail_preds, tail_regs.c_ptr(), m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
 
         g_compiler->add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, ctx, acc);
 
@@ -1573,6 +1578,7 @@ namespace datalog {
               if (!dealloc)
                 g_compiler->make_clone(filtered_res, filtered_res, acc);
               acc.push_back(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), filtered_res, value, i));
+              ///*acc.push_back*/(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), filtered_res, value, i)->perform(g_compiler->m_ectx));
               dealloc = true;
             }
             else {
@@ -1626,6 +1632,7 @@ namespace datalog {
           if (!dealloc)
             g_compiler->make_clone(filtered_res, filtered_res, acc);
           acc.push_back(instruction::mk_filter_identical(filtered_res, indexes.size(), indexes.c_ptr()));
+          ///*acc.push_back*/(instruction::mk_filter_identical(filtered_res, indexes.size(), indexes.c_ptr())->perform(g_compiler->m_ectx));
           dealloc = true;
         }
 
@@ -1707,6 +1714,8 @@ namespace datalog {
             g_compiler->make_clone(filtered_res, filtered_res, acc);
           acc.push_back(instruction::mk_filter_by_negation(filtered_res, neg_reg, t_cols.size(),
             t_cols.c_ptr(), neg_cols.c_ptr()));
+          ///*acc.push_back*/(instruction::mk_filter_by_negation(filtered_res, neg_reg, t_cols.size(),
+          //  t_cols.c_ptr(), neg_cols.c_ptr())->perform(g_compiler->m_ectx));
           dealloc = true;
         }
 
@@ -1764,6 +1773,7 @@ namespace datalog {
             if (!dealloc)
               g_compiler->make_clone(filtered_res, filtered_res, acc);
             acc.push_back(instruction::mk_filter_interpreted(filtered_res, app_renamed));
+            ///*acc.push_back*/(instruction::mk_filter_interpreted(filtered_res, app_renamed)->perform(g_compiler->m_ectx));
           }
           else {
             std::sort(remove_columns.begin(), remove_columns.end());
@@ -1840,6 +1850,7 @@ namespace datalog {
           if (!dealloc)
             make_clone(filtered_res, filtered_res, acc);
           acc.push_back(instruction::mk_filter_interpreted(filtered_res, app_renamed));
+          ///*acc.push_back*/(instruction::mk_filter_interpreted(filtered_res, app_renamed)->perform(g_compiler->m_ectx));
           dealloc = true;
         }
 #endif

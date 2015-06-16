@@ -120,6 +120,8 @@ namespace datalog {
         instruction_observer              m_instruction_observer;
         expr_free_vars                    m_free_vars;
 
+        execution_context m_ectx;
+
         /**
            If true, the union operation on the underlying structure only provides the information
            whether the updated relation has changed or not. In this case we do not get anything
@@ -204,14 +206,12 @@ namespace datalog {
            Used to get input for the "project" part of join-project.
          */
         void get_local_indexes_for_projection(rule *r, vector<expr_ref_vector> & pos_tail_preds,
-          int_set &applied_interp_pred, const expr_ref_vector & intm_result,
-          unsigned tail_offset, unsigned_vector & res);
+          const expr_ref_vector & intm_result, unsigned tail_offset, unsigned_vector & res);
         void get_local_indexes_for_projection(const expr_ref_vector & t, var_counter & globals, unsigned ofs,
           unsigned_vector & res);
 
         void compile_join_project(rule * r, vector<expr_ref_vector> & pos_tail_preds, const reg_idx * tail_regs,
-          int_set &applied_interp_pred, const ast_manager & m,
-          unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
+          const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
           expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc);
 
         /**
@@ -269,10 +269,11 @@ namespace datalog {
 
         void reset();
 
-        explicit compiler(context & ctx, rule_set const & rules, instruction_block & top_level_code) 
+        explicit compiler(context & ctx, rule_set const & rules, instruction_block & top_level_code, execution_context & ectx)
             : m_context(ctx), 
             m_rule_set(rules),
             m_top_level_code(top_level_code),
+            m_ectx(ectx),
             m_instruction_observer(*this) {}
         
         /**
@@ -286,8 +287,8 @@ namespace datalog {
     // TODO public:
 
         static void compile(context & ctx, rule_set const & rules, instruction_block & execution_code, 
-                instruction_block & termination_code) {
-            compiler(ctx, rules, execution_code).do_compilation(execution_code, termination_code);
+                instruction_block & termination_code, execution_context &ectx) {
+            compiler(ctx, rules, execution_code, ectx).do_compilation(execution_code, termination_code);
         }
 
     };

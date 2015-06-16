@@ -48,6 +48,7 @@ namespace datalog {
         e->get_data().m_value=reg;
 
         acc.push_back(instruction::mk_load(m_context.get_manager(), pred, reg));
+        ///*acc.push_back*/(instruction::mk_load(m_context.get_manager(), pred, reg)->perform(m_ectx));
     }
 
     void compiler::make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, 
@@ -60,8 +61,9 @@ namespace datalog {
         relation_signature::from_join(m_reg_signatures[result], m_reg_signatures[join_reg2],
           vars[i - 1].size(), vars[i - 1].get_cols1(), vars[i - 1].get_cols2(), res_sig); // cols not used
         result = get_register(res_sig, reuse_t1, NULL); // TODO NULL
-      }      
+      }
       acc.push_back(instruction::mk_multiary_join(tail_regs, pt_len, vars, result));
+      ///*acc.push_back*/(instruction::mk_multiary_join(tail_regs, pt_len, vars, result)->perform(m_ectx));
     }
 
     void compiler::make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
@@ -80,6 +82,8 @@ namespace datalog {
         result = get_register(res_sig, reuse_t1, NULL); // TODO NULL
       }
       acc.push_back(instruction::mk_multiary_join_project(tail_regs, pt_len, vars, removed_cols, result));
+      ///*acc.push_back*/(instruction::mk_multiary_join_project(tail_regs, pt_len, vars, removed_cols, result)->perform(m_ectx));
+      
     }
 
     void compiler::make_join(reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result, 
@@ -89,6 +93,7 @@ namespace datalog {
             vars.get_cols1(), vars.get_cols2(), res_sig);
         result = get_register(res_sig, reuse_t1, t1);
         acc.push_back(instruction::mk_join(t1, t2, vars.size(), vars.get_cols1(), vars.get_cols2(), result));
+        ///*acc.push_back*/(instruction::mk_join(t1, t2, vars.size(), vars.get_cols1(), vars.get_cols2(), result)->perform(m_ectx));
     }
 
     void compiler::make_join_project(reg_idx t1, reg_idx t2, const variable_intersection & vars, 
@@ -102,8 +107,10 @@ namespace datalog {
             res_sig);
         result = get_register(res_sig, reuse_t1, t1);
 
-        acc.push_back(instruction::mk_join_project(t1, t2, vars.size(), vars.get_cols1(), 
-            vars.get_cols2(), removed_cols.size(), removed_cols.c_ptr(), result));
+        acc.push_back(instruction::mk_join_project(t1, t2, vars.size(), vars.get_cols1(),
+          vars.get_cols2(), removed_cols.size(), removed_cols.c_ptr(), result));
+        ///*acc.push_back*/(instruction::mk_join_project(t1, t2, vars.size(), vars.get_cols1(), 
+        //  vars.get_cols2(), removed_cols.size(), removed_cols.c_ptr(), result))->perform(m_ectx);
     }
 
     void compiler::make_filter_interpreted_and_project(reg_idx src, app_ref & cond,
@@ -115,7 +122,9 @@ namespace datalog {
         result = get_register(res_sig, reuse, src);
 
         acc.push_back(instruction::mk_filter_interpreted_and_project(src, cond,
-            removed_cols.size(), removed_cols.c_ptr(), result));
+          removed_cols.size(), removed_cols.c_ptr(), result));
+        ///*acc.push_back*/(instruction::mk_filter_interpreted_and_project(src, cond,
+        //  removed_cols.size(), removed_cols.c_ptr(), result)->perform(m_ectx));
     }
 
     void compiler::make_select_equal_and_project(reg_idx src, const relation_element val, unsigned col,
@@ -124,13 +133,17 @@ namespace datalog {
         relation_signature::from_project(m_reg_signatures[src], 1, &col, res_sig);
         result = get_register(res_sig, reuse, src);
         acc.push_back(instruction::mk_select_equal_and_project(m_context.get_manager(),
-            src, val, col, result));
+          src, val, col, result));
+        ///*acc.push_back*/(instruction::mk_select_equal_and_project(m_context.get_manager(),
+        //  src, val, col, result)->perform(m_ectx));
     }
 
     void compiler::make_clone(reg_idx src, reg_idx & result, instruction_block & acc) {
         relation_signature sig = m_reg_signatures[src];
         result = get_fresh_register(sig);
+        
         acc.push_back(instruction::mk_clone(src, result));
+        ///*acc.push_back*/(instruction::mk_clone(src, result)->perform(m_ectx));
     }
 
     void compiler::make_union(reg_idx src, reg_idx tgt, reg_idx delta, bool use_widening, 
@@ -139,10 +152,12 @@ namespace datalog {
         SASSERT(delta==execution_context::void_register || m_reg_signatures[src]==m_reg_signatures[delta]);
 
         if (use_widening) {
-            acc.push_back(instruction::mk_widen(src, tgt, delta));
+          acc.push_back(instruction::mk_widen(src, tgt, delta));
+          ///*acc.push_back*/(instruction::mk_widen(src, tgt, delta)->perform(m_ectx));
         }
         else {
-            acc.push_back(instruction::mk_union(src, tgt, delta));
+          acc.push_back(instruction::mk_union(src, tgt, delta));
+          ///*acc.push_back*/(instruction::mk_union(src, tgt, delta)->perform(m_ectx));
         }
     }
 
@@ -154,6 +169,7 @@ namespace datalog {
         relation_signature::from_project(m_reg_signatures[src], col_cnt, removed_cols, res_sig);
         result = get_register(res_sig, reuse, src);
         acc.push_back(instruction::mk_projection(src, col_cnt, removed_cols, result));
+        ///*acc.push_back*/(instruction::mk_projection(src, col_cnt, removed_cols, result)->perform(m_ectx));
     }
 
     compiler::reg_idx compiler::get_fresh_register(const relation_signature & sig) {
@@ -193,9 +209,10 @@ namespace datalog {
     }
 
     void compiler::make_dealloc_non_void(reg_idx r, instruction_block & acc) {
-        if(r!=execution_context::void_register) {
-            acc.push_back(instruction::mk_dealloc(r));
-        }
+      if (r != execution_context::void_register) {
+        acc.push_back(instruction::mk_dealloc(r));
+        ///*acc.push_back*/(instruction::mk_dealloc(r)->perform(m_ectx));
+      }
     }
 
     void compiler::make_add_constant_column(func_decl* head_pred, reg_idx src, const relation_sort s, const relation_element val,
@@ -290,6 +307,7 @@ namespace datalog {
         relation_signature::from_rename(m_reg_signatures[src], cycle_len, permutation_cycle, res_sig);
         result = get_register(res_sig, reuse, src);
         acc.push_back(instruction::mk_rename(src, cycle_len, permutation_cycle, result));
+        ///*acc.push_back*/(instruction::mk_rename(src, cycle_len, permutation_cycle, result)->perform(m_ectx));
     }
 
     void compiler::make_assembling_code(
@@ -443,7 +461,7 @@ namespace datalog {
     }    
     
     void compiler::get_local_indexes_for_projection(rule *r, vector<expr_ref_vector> & pos_tail_preds,
-      int_set &applied_interp_pred, const expr_ref_vector & intm_result,
+      const expr_ref_vector & intm_result,
       unsigned tail_offset, unsigned_vector & res) {
       rule_counter counter;
       // leave one column copy per var in the head (avoids later duplication)
@@ -479,7 +497,7 @@ namespace datalog {
     }
 
     void compiler::compile_join_project(rule *r, vector<expr_ref_vector> & pos_tail_preds,
-        const reg_idx * tail_regs, int_set &applied_interp_pred, const ast_manager & m,
+        const reg_idx * tail_regs, const ast_manager & m,
         unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res, 
         expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc) {
 
@@ -503,7 +521,7 @@ namespace datalog {
           a1a2.populate(single_res_expr, a2);
 
           unsigned_vector curr_removed_cols;
-          get_local_indexes_for_projection(r, pos_tail_preds, applied_interp_pred, single_res_expr, i + 1, curr_removed_cols);
+          get_local_indexes_for_projection(r, pos_tail_preds, single_res_expr, i + 1, curr_removed_cols);
           no_projection &= curr_removed_cols.empty();
           
           join_cols.push_back(a1a2);
@@ -561,7 +579,7 @@ namespace datalog {
         a1a2.populate(a1, a2);
 
         unsigned_vector removed_cols;
-        get_local_indexes_for_projection(r, pos_tail_preds, applied_interp_pred, a1, 2, removed_cols);
+        get_local_indexes_for_projection(r, pos_tail_preds, a1, 2, removed_cols);
 
         if (removed_cols.empty()) {
           make_join(t1_reg, t2_reg, a1a2, single_res, false, acc);
@@ -1058,7 +1076,8 @@ namespace datalog {
         }
 
         if(!input_deltas || all_or_nothing_deltas()) {
-            acc.push_back(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening));
+          acc.push_back(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening));
+          ///*acc.push_back*/(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening)->perform(m_ectx));
         }
         else {
             tail_delta_infos::iterator tdit = tail_deltas.begin();
@@ -1067,6 +1086,7 @@ namespace datalog {
                 tail_delta_info tdinfo = *tdit;
                 flet<reg_idx> flet_tail_reg(tail_regs[tdinfo.second], tdinfo.first);
                 acc.push_back(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening));
+                ///*acc.push_back*/(instruction::mk_exec(r, head_reg, tail_regs.c_ptr(), output_delta, use_widening)->perform(m_ectx));
             }
         }
     }
@@ -1200,7 +1220,8 @@ namespace datalog {
 
             reg_idx d_head_reg;
             if (output_deltas.find(head_pred, d_head_reg)) {
-                acc.push_back(instruction::mk_clone(m_pred_regs.find(head_pred), d_head_reg));
+              acc.push_back(instruction::mk_clone(m_pred_regs.find(head_pred), d_head_reg));
+              ///*acc.push_back*/(instruction::mk_clone(m_pred_regs.find(head_pred), d_head_reg)->perform(m_ectx));
             }
         }
     }
@@ -1215,12 +1236,14 @@ namespace datalog {
             reg_idx head_reg = gdit->m_value;
             reg_idx tail_reg = global_tail_deltas.find(pred);
             acc.push_back(instruction::mk_move(head_reg, tail_reg));
+            ///*acc.push_back*/(instruction::mk_move(head_reg, tail_reg)->perform(m_ectx));
         }
         //empty local deltas
         pred2idx::iterator lit = local_deltas.begin();
         pred2idx::iterator lend = local_deltas.end();
         for(; lit!=lend; ++lit) {
-            acc.push_back(instruction::mk_dealloc(lit->m_value));
+          acc.push_back(instruction::mk_dealloc(lit->m_value));
+          ///*acc.push_back*/(instruction::mk_dealloc(lit->m_value)->perform(m_ectx));
         }
     }
 
@@ -1248,7 +1271,9 @@ namespace datalog {
 
         loop_body->set_observer(0);
         acc.push_back(instruction::mk_while_loop(loop_control_regs.size(),
-            loop_control_regs.c_ptr(), loop_body));
+          loop_control_regs.c_ptr(), loop_body));
+        ///*acc.push_back*/(instruction::mk_while_loop(loop_control_regs.size(),
+        //  loop_control_regs.c_ptr(), loop_body)->perform(m_ectx));
     }
 
     void compiler::compile_dependent_rules(const func_decl_set & head_preds,
@@ -1314,7 +1339,8 @@ namespace datalog {
             func_decl_set::iterator fdit = head_preds.begin();
             func_decl_set::iterator fdend = head_preds.end();
             for(; fdit!=fdend; ++fdit) {
-                acc.push_back(instruction::mk_mark_saturated(m_context.get_manager(), *fdit));
+              acc.push_back(instruction::mk_mark_saturated(m_context.get_manager(), *fdit));
+              ///*acc.push_back*/(instruction::mk_mark_saturated(m_context.get_manager(), *fdit)->perform(m_ectx));
             }
         }
     }
@@ -1366,7 +1392,8 @@ namespace datalog {
 
         if (add_saturation_marks) {
             //now the predicate is saturated, so we may mark it as such
-            acc.push_back(instruction::mk_mark_saturated(m_context.get_manager(), head_pred));
+          acc.push_back(instruction::mk_mark_saturated(m_context.get_manager(), head_pred));
+          ///*acc.push_back*/(instruction::mk_mark_saturated(m_context.get_manager(), head_pred)->perform(m_ectx));
         }
     }
 
@@ -1418,7 +1445,7 @@ namespace datalog {
     }
 
     void compiler::do_compilation(instruction_block & execution_code, 
-            instruction_block & termination_code) {
+      instruction_block & termination_code) {
 
         unsigned rule_cnt=m_rule_set.get_num_rules();
         if(rule_cnt==0) {
@@ -1455,6 +1482,7 @@ namespace datalog {
             func_decl * pred = e.m_key;
             reg_idx reg = e.m_value;
             termination_code.push_back(instruction::mk_store(m_context.get_manager(), pred, reg));
+            ///*termination_code.push_back*/(instruction::mk_store(m_context.get_manager(), pred, reg)->perform(m_ectx));
         }
 
         acc.set_observer(0);
