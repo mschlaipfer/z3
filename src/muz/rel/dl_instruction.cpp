@@ -714,6 +714,7 @@ namespace datalog {
 
             ctx.set_reg(m_res, (*fn)(reg));
 
+
             if (ctx.reg(m_res)->fast_empty()) {
                 ctx.make_empty(m_res);
             }
@@ -973,18 +974,20 @@ namespace datalog {
           }
           /*  store_fn(r1, r2, i, fn);
           }*/
-
-          TRACE("dl",
+          /*
+          TRACE("dl", tout << "input: ";
             r1.get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << r1.get_size_estimate_rows() << " x ";
           r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << r2.get_size_estimate_rows() << " ->\n";);
+          */
 
           ctx.set_reg(m_result, (*fn)(r1, r2));
-
-          TRACE("dl",
+          /*
+          TRACE("dl", tout << "output: ";
             ctx.reg(m_result)->get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << ctx.reg(m_result)->get_size_estimate_rows() << "\n";);
+          */
 
           if (ctx.reg(m_result)->fast_empty()) {
             ctx.make_empty(m_result);
@@ -1019,7 +1022,7 @@ namespace datalog {
         }
         out << " into " << m_result;
         out << " removing columns";
-        svector<column_vector>::const_iterator remit = m_removed_cols.begin() + 1, remend = m_removed_cols.end();
+        svector<column_vector>::const_iterator remit = m_removed_cols.begin(), remend = m_removed_cols.end();
         for (; remit != remend; ++remit) {
           out << " ";
           print_container(*remit, out);
@@ -1234,6 +1237,9 @@ namespace datalog {
             m_fact.push_back(val);
         }
         virtual bool perform(execution_context & ctx) {
+          TRACE("dl", tout << "mk_unary_singleton into " << m_tgt << " sort:"
+            << ctx.get_rel_context().get_rmanager().to_nice_string(m_sig[0]) << " val:"
+            << ctx.get_rel_context().get_rmanager().to_nice_string(m_sig[0], m_fact[0]););
             log_verbose(ctx);            
             ++ctx.m_stats.m_unary_singleton;
             relation_base * rel = ctx.get_rel_context().get_rmanager().mk_empty_relation(m_sig, m_pred);
@@ -1267,6 +1273,8 @@ namespace datalog {
     public:
         instr_mk_total(const relation_signature & sig, func_decl* p, reg_idx tgt) : m_sig(sig), m_pred(p), m_tgt(tgt) {}
         virtual bool perform(execution_context & ctx) {
+          TRACE("dl", tout << "mk_total into " << m_tgt << " sort:"
+            << ctx.get_rel_context().get_rmanager().to_nice_string(m_sig););
             log_verbose(ctx);            
             ++ctx.m_stats.m_total;
             ctx.set_reg(m_tgt, ctx.get_rel_context().get_rmanager().mk_full_relation(m_sig, m_pred));
@@ -1378,6 +1386,7 @@ namespace datalog {
           int2ints var_indexes;
           compute_var_indexes(res_expr, var_indexes);
 
+          // TODO move outside of loop
           // add unbounded columns for interpreted filter
           ptr_vector<expr> tail;
           for (unsigned tail_index = ut_len; tail_index < ft_len; ++tail_index) {
@@ -1415,7 +1424,7 @@ namespace datalog {
               relation_sort var_sort = g_compiler->m_reg_signatures[tail_regs[i]][src_col];
               binding[g_compiler->m_free_vars.size() - v] = m.mk_var(src_col, var_sort);
             }
-
+            /*
             // check if there are any columns to remove
             unsigned_vector remove_columns;
             {
@@ -1457,17 +1466,17 @@ namespace datalog {
                   }
                 }
               }
-            }
+            }*/
 
             expr_ref renamed(m);
             g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
             app_ref app_renamed(to_app(renamed), m);
-            if (remove_columns.empty()) {
+            //if (remove_columns.empty()) {
               if (!dealloc)
                 g_compiler->make_clone(tail_regs[i], tail_regs[i], acc);
               acc.push_back(instruction::mk_filter_interpreted(tail_regs[i], app_renamed));
               ///*acc.push_back*/(instruction::mk_filter_interpreted(tail_regs[i], app_renamed)->perform(g_compiler->m_ectx));
-            }
+            /*}
             else {
               std::sort(remove_columns.begin(), remove_columns.end());
               TRACE("dl", tout << "remove_columns: "; print_container(remove_columns, tout); tout << "\n";);
@@ -1481,10 +1490,11 @@ namespace datalog {
                   tmp.push_back(res_expr.get(k));
                 }
               }
+              SASSERT(tmp.size() == res_expr.size() - remove_columns.size());
               res_expr.swap(tmp);
               dealloc = false; // TODO
               g_compiler->make_filter_interpreted_and_project(tail_regs[i], app_renamed, remove_columns, tail_regs[i], dealloc, acc);
-            }
+            }*/
             dealloc = true;
           }
         }
@@ -1501,6 +1511,8 @@ namespace datalog {
         }
       }
       virtual bool perform(execution_context & ctx) {
+
+        TRACE("dl", r->display(g_compiler->m_context, tout););
         // caching
         if (acc.num_instructions() != 0) {
           //acc.reset(); // recomputing every time
@@ -1514,8 +1526,6 @@ namespace datalog {
         const app * h = r->get_head();
         unsigned head_len = h->get_num_args();
         func_decl * head_pred = h->get_decl();
-
-        TRACE("dl", r->display(g_compiler->m_context, tout););
 
         unsigned pt_len = r->get_positive_tail_size();
         unsigned ut_len = r->get_uninterpreted_tail_size();

@@ -524,10 +524,12 @@ namespace datalog {
           single_res_expr.push_back(pos_tail_preds[0].get(i));
           belongs_to.push_back(0);
         }
+        TRACE("dl", tout << tail_regs[0] << " sig size " << m_reg_signatures[tail_regs[0]].size() << " expr size " << single_res_expr.size() << "\n";);
         SASSERT(m_reg_signatures[tail_regs[0]].size() == single_res_expr.size());
         for (unsigned i = 1; i < pt_len; ++i) {
           expr_ref_vector a2 = pos_tail_preds[i];
-          SASSERT(m_reg_signatures[tail_regs[i]].size() == a2.size());
+          TRACE("dl", tout << tail_regs[i] << " sig size " << m_reg_signatures[tail_regs[i]].size() << " expr size " << a2.size() << "\n";);
+          SASSERT(m_reg_signatures[tail_regs[i]].size() == a2.size()); // TODO
 
           variable_intersection a1a2(m_context.get_manager());
           a1a2.populate(single_res_expr, a2);
