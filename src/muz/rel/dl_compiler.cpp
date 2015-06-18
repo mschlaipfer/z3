@@ -90,11 +90,9 @@ namespace datalog {
     void compiler::make_join(reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result, 
             bool reuse_t1, instruction_block & acc) {
         relation_signature res_sig;
-        TRACE("dl", tout << "t1 size: " << m_reg_signatures[t1].size() << " t2 size: " << m_reg_signatures[t2].size() << "\n";);
         relation_signature::from_join(m_reg_signatures[t1], m_reg_signatures[t2], vars.size(), 
             vars.get_cols1(), vars.get_cols2(), res_sig);
         result = get_register(res_sig, reuse_t1, t1);
-        TRACE("dl", tout << "result size: " << m_reg_signatures[result].size() << "\n";);
         acc.push_back(instruction::mk_join(t1, t2, vars.size(), vars.get_cols1(), vars.get_cols2(), result));
         ///*acc.push_back*/(instruction::mk_join(t1, t2, vars.size(), vars.get_cols1(), vars.get_cols2(), result)->perform(m_ectx));
     }
@@ -222,7 +220,6 @@ namespace datalog {
         reg_idx & result, bool & dealloc, execution_context & ctx, instruction_block & acc) {
         reg_idx singleton_table;
         if(!m_constant_registers.find(s, val, singleton_table)) {
-          TRACE("dl", tout << "Adding constant column 1\n";);
             singleton_table = get_single_column_register(s);
             instruction * instr = instruction::mk_unary_singleton(m_context.get_manager(), head_pred, s, val, singleton_table);
             instr->perform(ctx);
@@ -230,12 +227,10 @@ namespace datalog {
             m_constant_registers.insert(s, val, singleton_table);
         }
         if (src == execution_context::void_register) {
-          TRACE("dl", tout << "Adding constant column 2\n";);
             result = singleton_table;
             SASSERT(dealloc == false);
         }
         else {
-          TRACE("dl", tout << "Adding constant column 3\n";);
             variable_intersection empty_vars(m_context.get_manager());
             make_join(src, singleton_table, empty_vars, result, dealloc, acc);
             dealloc = true;
@@ -472,7 +467,7 @@ namespace datalog {
         }
     }    
     
-    void compiler::get_local_indexes_for_projection(rule *r, vector<expr_ref_vector> & pos_tail_preds,
+    void compiler::get_local_indexes_for_projection(rule *r, const vector<expr_ref_vector> & pos_tail_preds,
       const expr_ref_vector & intm_result,
       unsigned tail_offset, unsigned_vector & res) {
       rule_counter counter;
@@ -508,8 +503,8 @@ namespace datalog {
       get_local_indexes_for_projection(t2, counter, intm_result.size(), res);
     }
 
-    void compiler::compile_join_project(rule *r, vector<expr_ref_vector> & pos_tail_preds,
-        const reg_idx * tail_regs, const ast_manager & m,
+    void compiler::compile_join_project(rule *r, const vector<expr_ref_vector> & pos_tail_preds,
+        const svector<reg_idx> & pos_tail_regs, const ast_manager & m,
         unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res, 
         expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc) {
 
@@ -524,12 +519,12 @@ namespace datalog {
           single_res_expr.push_back(pos_tail_preds[0].get(i));
           belongs_to.push_back(0);
         }
-        TRACE("dl", tout << tail_regs[0] << " sig size " << m_reg_signatures[tail_regs[0]].size() << " expr size " << single_res_expr.size() << "\n";);
-        SASSERT(m_reg_signatures[tail_regs[0]].size() == single_res_expr.size());
+        TRACE("dl", tout << pos_tail_regs[0] << " sig size " << m_reg_signatures[pos_tail_regs[0]].size() << " expr size " << single_res_expr.size() << "\n";);
+        SASSERT(m_reg_signatures[pos_tail_regs[0]].size() == single_res_expr.size());
         for (unsigned i = 1; i < pt_len; ++i) {
           expr_ref_vector a2 = pos_tail_preds[i];
-          TRACE("dl", tout << tail_regs[i] << " sig size " << m_reg_signatures[tail_regs[i]].size() << " expr size " << a2.size() << "\n";);
-          SASSERT(m_reg_signatures[tail_regs[i]].size() == a2.size()); // TODO
+          TRACE("dl", tout << pos_tail_regs[i] << " sig size " << m_reg_signatures[pos_tail_regs[i]].size() << " expr size " << a2.size() << "\n";);
+          SASSERT(m_reg_signatures[pos_tail_regs[i]].size() == a2.size()); // TODO
 
           variable_intersection a1a2(m_context.get_manager());
           a1a2.populate(single_res_expr, a2);
@@ -576,14 +571,14 @@ namespace datalog {
           SASSERT(rem_index == rem_sz);
         }
         if (no_projection) {
-          make_multiary_join(tail_regs, pt_len, join_cols, single_res, false, acc);
+          make_multiary_join(pos_tail_regs.c_ptr(), pt_len, join_cols, single_res, false, acc);
         } else {
-          make_multiary_join_project(tail_regs, pt_len, join_cols, removed_cols, single_res, false, acc);
+          make_multiary_join_project(pos_tail_regs.c_ptr(), pt_len, join_cols, removed_cols, single_res, false, acc);
         }
       }
       else if (pt_len == 2) {
-        reg_idx t1_reg = tail_regs[0];
-        reg_idx t2_reg = tail_regs[1];
+        reg_idx t1_reg = pos_tail_regs[0];
+        reg_idx t2_reg = pos_tail_regs[1];
         expr_ref_vector a1 = pos_tail_preds[0];
         expr_ref_vector a2 = pos_tail_preds[1];
         SASSERT(m_reg_signatures[t1_reg].size() == a1.size());
@@ -628,7 +623,7 @@ namespace datalog {
       }
       else if (pt_len == 1) {
         expr_ref_vector a = pos_tail_preds[0];
-        single_res = tail_regs[0];
+        single_res = pos_tail_regs[0];
         dealloc = false;
         TRACE("dl", tout << "sig " << single_res << " size: " << m_reg_signatures[single_res].size() << " vs expr size " << a.size() << "\n";);
         SASSERT(m_reg_signatures[single_res].size() == a.size());
@@ -653,7 +648,10 @@ namespace datalog {
         SASSERT(pt_len == 0);
 
         //single_res register should never be used in this case
-        single_res = execution_context::void_register;
+        single_res = pos_tail_regs[0]; // in this case we added a total_relation to pos_tail_regs
+        for (unsigned i = 0; i < pos_tail_preds[0].size(); ++i) {
+          single_res_expr.push_back(pos_tail_preds[0].get(i));
+        }
         dealloc = false;
       }
     }

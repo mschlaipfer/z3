@@ -208,12 +208,13 @@ namespace datalog {
 
            Used to get input for the "project" part of join-project.
          */
-        void get_local_indexes_for_projection(rule *r, vector<expr_ref_vector> & pos_tail_preds,
+        void get_local_indexes_for_projection(rule *r, const vector<expr_ref_vector> & pos_tail_preds,
           const expr_ref_vector & intm_result, unsigned tail_offset, unsigned_vector & res);
         void get_local_indexes_for_projection(const expr_ref_vector & t, var_counter & globals, unsigned ofs,
           unsigned_vector & res);
 
-        void compile_join_project(rule * r, vector<expr_ref_vector> & pos_tail_preds, const reg_idx * tail_regs,
+        void compile_join_project(rule * r, const vector<expr_ref_vector> & pos_tail_preds,
+          const svector<reg_idx> & pos_tail_regs,
           const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
           expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc);
 
