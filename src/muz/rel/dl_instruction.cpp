@@ -1357,14 +1357,32 @@ namespace datalog {
       instruction_block acc; // TODO pointer?
     private:
 
+      void compute_var_occs(const expr_ref_vector &pred, int2int &var_occs) {
+        //enforce equality to constants
+        unsigned len = pred.size();
+        for (unsigned i = 0; i < len; i++) {
+          expr * exp = pred.get(i);
+          if (is_var(exp)) {
+            unsigned var_idx = to_var(exp)->get_idx();
+            int2int::entry * e = var_occs.insert_if_not_there2(var_idx, 0);
+            e->get_data().m_value++;
+          }
+        }
+
+        TRACE("dl", for (int2int::iterator I = var_occs.begin(), E = var_occs.end();
+        I != E; ++I) {
+          tout << I->m_key << ": " << I->m_value << "\n";
+        });
+      }
+
       void compute_var_indexes(const expr_ref_vector &pred, int2ints &var_indexes) {
         //enforce equality to constants
         unsigned len = pred.size();
         for (unsigned i = 0; i < len; i++) {
           expr * exp = pred.get(i);
           if (is_var(exp)) {
-            unsigned var_num = to_var(exp)->get_idx();
-            int2ints::entry * e = var_indexes.insert_if_not_there2(var_num, unsigned_vector());
+            unsigned var_idx = to_var(exp)->get_idx();
+            int2ints::entry * e = var_indexes.insert_if_not_there2(var_idx, unsigned_vector());
             e->get_data().m_value.push_back(i);
           }
         }
@@ -1442,7 +1460,11 @@ namespace datalog {
 
 
         } else {
-
+        int2int var_occs;
+        for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
+          it != end; ++it) {
+          compute_var_occs(*it, var_occs);
+        }
 
         unsigned i = 0;
         for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
@@ -1456,6 +1478,14 @@ namespace datalog {
           // add unbounded columns for interpreted filter
           expr_ref_vector binding(m);
           if (!interpreted_tail.empty()) {
+
+
+
+
+            int2int var_occs_pred;
+            compute_var_occs(res_expr, var_occs_pred);
+
+
             // TODO do as much preprocessing outside of loop as possible
             app_ref filter_cond(interpreted_tail.size() == 1 ? to_app(interpreted_tail.back()) : m.mk_and(interpreted_tail.size(), interpreted_tail.c_ptr()), m);
             g_compiler->m_free_vars(filter_cond);
@@ -1466,6 +1496,7 @@ namespace datalog {
                 continue;
 
               int2ints::entry * entry = var_indexes.find_core(v);
+              //int2int::entry * occ_entry = var_occs.find_core(v);
               unsigned src_col;
               if (entry) {
                 src_col = entry->get_data().m_value.back();
@@ -1481,6 +1512,9 @@ namespace datalog {
 
                 entry = var_indexes.insert_if_not_there2(v, unsigned_vector());
                 entry->get_data().m_value.push_back(src_col);
+
+                //occ_entry = var_occs.insert_if_not_there2(v, 0);
+                //occ_entry->get_data().m_value++;
               }
               relation_sort var_sort = g_compiler->m_reg_signatures[res_reg][src_col];
               binding[g_compiler->m_free_vars.size() - v] = m.mk_var(src_col, var_sort);
@@ -1531,7 +1565,6 @@ namespace datalog {
             }
             #endif
 
-            /*
             // check if there are any columns to remove
             unsigned_vector remove_columns;
             {
@@ -1541,12 +1574,31 @@ namespace datalog {
                 I != E; ++I) {
                 unsigned var_idx = I->m_key;
                 if (!g_compiler->m_free_vars.contains(var_idx)) {
+                  unsigned min_amount = 0;
+                  if (var_occs_pred.contains(var_idx) && var_occs.get(var_idx, 0) > var_occs_pred[var_idx])
+                    min_amount = 1;
+
                   unsigned_vector & cols = I->m_value;
-                  for (unsigned i = 0; i < cols.size(); ++i) {
+                  for (unsigned i = 0; i < cols.size() && (var_occs_pred.get(var_idx, UINT_MAX) > min_amount); ++i) {
                     remove_columns.push_back(cols[i]);
                     //res_expr.erase(cols[i]);// TODO
+                    var_occs[var_idx]--;
+                    if(var_occs_pred.contains(var_idx))
+                      var_occs_pred[var_idx]--;
                   }
-                  var_idx_to_remove.push_back(var_idx);
+                  if (min_amount == 0)
+                    var_idx_to_remove.push_back(var_idx);
+
+
+                  TRACE("dl", tout << "occs global: "; for (int2int::iterator I = var_occs.begin(), E = var_occs.end();
+                  I != E; ++I) {
+                    tout << I->m_key << ": " << I->m_value << "\n";
+                  }
+                  tout << "occs pred: "; for (int2int::iterator I = var_occs_pred.begin(), E = var_occs_pred.end();
+                    I != E; ++I) {
+                    tout << I->m_key << ": " << I->m_value << "\n";
+                  }
+                  );
                 }
               }
 
@@ -1573,17 +1625,17 @@ namespace datalog {
                   }
                 }
               }
-            }*/
+            }
 
             expr_ref renamed(m);
             g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
             app_ref app_renamed(to_app(renamed), m);
-            //if (remove_columns.empty()) {
+            if (remove_columns.empty()) {
               if (!dealloc)
                 g_compiler->make_clone(res_reg, res_reg, acc);
               acc.push_back(instruction::mk_filter_interpreted(res_reg, app_renamed));
               ///*acc.push_back*/(instruction::mk_filter_interpreted(tail_regs[i], app_renamed)->perform(g_compiler->m_ectx));
-            /*}
+            }
             else {
               std::sort(remove_columns.begin(), remove_columns.end());
               TRACE("dl", tout << "remove_columns: "; print_container(remove_columns, tout); tout << "\n";);
@@ -1599,9 +1651,10 @@ namespace datalog {
               }
               SASSERT(tmp.size() == res_expr.size() - remove_columns.size());
               res_expr.swap(tmp);
-              dealloc = false; // TODO
+              dealloc = false; // TODO understand dealloc
+              // TODO if no change to signature shouldn't clone before filtering? store result into new table, though. (filter_interpreted_project example)
               g_compiler->make_filter_interpreted_and_project(res_reg, app_renamed, remove_columns, res_reg, dealloc, acc);
-            }*/
+            }
             dealloc = true;
           }
         }
@@ -1618,11 +1671,11 @@ namespace datalog {
       }
       virtual bool perform(execution_context & ctx) {
 
-        TRACE("dl_code", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
+        TRACE("dl", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
         // caching
         if (acc.num_instructions() != 0) {
           //acc.reset(); // recomputing every time
-          TRACE("dl_code", tout << "cache CODE\n"; acc.display(ctx, tout););
+          TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
           acc.perform(ctx);
           return true;
         }
@@ -2038,7 +2091,7 @@ namespace datalog {
         //    finish:
         g_compiler->m_instruction_observer.finish_rule();
         
-        TRACE("dl_code", tout << "non-cache CODE\n"; acc.display(ctx, tout););
+        TRACE("dl", tout << "non-cache CODE\n"; acc.display(ctx, tout););
         acc.perform(ctx);
 
         return true;

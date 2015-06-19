@@ -647,10 +647,15 @@ namespace datalog {
       else {
         SASSERT(pt_len == 0);
 
-        //single_res register should never be used in this case
-        single_res = pos_tail_regs[0]; // in this case we added a total_relation to pos_tail_regs
-        for (unsigned i = 0; i < pos_tail_preds[0].size(); ++i) {
-          single_res_expr.push_back(pos_tail_preds[0].get(i));
+        if (pos_tail_regs.size() == 0) {
+          single_res = execution_context::void_register;
+        }
+        else {
+          //single_res register should never be used in this case
+          single_res = pos_tail_regs[0]; // in this case we added a total_relation to pos_tail_regs
+          for (unsigned i = 0; i < pos_tail_preds[0].size(); ++i) {
+            single_res_expr.push_back(pos_tail_preds[0].get(i));
+          }
         }
         dealloc = false;
       }
