@@ -1482,7 +1482,7 @@ namespace datalog {
             expr_ref_vector &res_expr = *it;
             reg_idx &res_reg = res_regs[i];
             g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
-            SASSERT(res_reg != execution_context::void_register);
+            //SASSERT(res_reg != execution_context::void_register);
             make_negation(head_pred, res_preds.size(), ut_len, res_expr, res_reg, dealloc, ctx);
             /*
             variable_intersection pos_neg(m);
@@ -1546,8 +1546,6 @@ namespace datalog {
             g_compiler->make_clone(res_reg, res_reg, acc);
           acc.push_back(instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
             t_cols.c_ptr(), neg_cols.c_ptr()));
-          ///*acc.push_back*/(instruction::mk_filter_by_negation(filtered_res, neg_reg, t_cols.size(),
-          //  t_cols.c_ptr(), neg_cols.c_ptr())->perform(g_compiler->m_ectx));
           dealloc = true;
         }
       }
@@ -1593,12 +1591,28 @@ namespace datalog {
             g_compiler->make_clone(res_reg, res_reg, acc);
           acc.push_back(instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
             t_cols.c_ptr(), neg_cols.c_ptr()));
-          ///*acc.push_back*/(instruction::mk_filter_by_negation(filtered_res, neg_reg, t_cols.size(),
-          //  t_cols.c_ptr(), neg_cols.c_ptr())->perform(g_compiler->m_ectx));
           dealloc = true;
         }
       }
 
+
+      void make_filter(expr_ref_vector &res_expr, ptr_vector<expr> &interpreted_tail, func_decl * head_pred,
+          reg_idx &res_reg, bool &dealloc, ast_manager & m, execution_context & ctx) {
+        // add unbounded columns for interpreted filter
+        expr_ref_vector binding(m);
+        int2ints var_indexes;
+        compute_var_indexes(res_expr, var_indexes);
+
+        app_ref filter_cond(interpreted_tail.size() == 1 ? to_app(interpreted_tail.back()) : m.mk_and(interpreted_tail.size(), interpreted_tail.c_ptr()), m);
+        do_var_binding(filter_cond, head_pred, res_expr, res_reg, var_indexes, binding, dealloc, m, ctx);
+
+        expr_ref renamed(m);
+        g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
+        app_ref app_renamed(to_app(renamed), m);
+        if (!dealloc)
+          g_compiler->make_clone(res_reg, res_reg, acc);
+        acc.push_back(instruction::mk_filter_interpreted(res_reg, app_renamed));
+      }
 
       void do_filter(unsigned ut_len, unsigned ft_len,
         func_decl * head_pred, bool &dealloc, ast_manager & m, 
@@ -1610,51 +1624,16 @@ namespace datalog {
         }
 
         if (res_preds.empty()) {
-
           // add unbounded columns for interpreted filter
           if (!interpreted_tail.empty()) {
             expr_ref_vector res_expr(m);
             reg_idx res_reg = execution_context::void_register;
             dealloc = false; // TODO ? that's how it goes in original case
-            int2ints var_indexes;
-            //compute_var_indexes(res_expr, var_indexes);
-            expr_ref_vector binding(m);
-            app_ref filter_cond(interpreted_tail.size() == 1 ? to_app(interpreted_tail.back()) : m.mk_and(interpreted_tail.size(), interpreted_tail.c_ptr()), m);
-            do_var_binding(filter_cond, head_pred, res_expr, res_reg, var_indexes, binding, dealloc, m, ctx);
 
-#ifdef NEGATION_FIRST
-            g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
-            make_negation(head_pred, res_preds.size(), ut_len, res_expr, res_reg, dealloc, ctx);
-#endif
-
-            expr_ref renamed(m);
-            g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
-            app_ref app_renamed(to_app(renamed), m);
-            //if (remove_columns.empty()) {
-            if (!dealloc)
-              g_compiler->make_clone(res_reg, res_reg, acc);
-            acc.push_back(instruction::mk_filter_interpreted(res_reg, app_renamed)); // shouldn't need to project here?
+            make_filter(res_expr, interpreted_tail, head_pred, res_reg, dealloc, m, ctx);
 
             res_preds.push_back(res_expr);
             res_regs.push_back(res_reg);
-          }
-          else if (res_preds.size() != ut_len) { // no filtering, but negation
-
-            expr_ref_vector res_expr(m);
-            reg_idx res_reg = execution_context::void_register;
-            dealloc = false; // TODO ? that's how it goes in original case
-
-#ifdef NEGATION_FIRST            
-            g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
-
-            SASSERT(res_preds.size() != ut_len);
-            make_negation(head_pred, res_preds.size(), ut_len, res_expr, res_reg, dealloc, ctx);
-            res_preds.push_back(res_expr);
-            res_regs.push_back(res_reg);
-
-#endif
-
-
           }
         } else {
           unsigned i = 0;
@@ -1665,46 +1644,9 @@ namespace datalog {
               expr_ref_vector &res_expr = *it;
               reg_idx &res_reg = res_regs[i];
 
-              // add unbounded columns for interpreted filter
-              expr_ref_vector binding(m);
-              int2ints var_indexes;
-              compute_var_indexes(res_expr, var_indexes);
-
-              app_ref filter_cond(interpreted_tail.size() == 1 ? to_app(interpreted_tail.back()) : m.mk_and(interpreted_tail.size(), interpreted_tail.c_ptr()), m);
-              do_var_binding(filter_cond, head_pred, res_expr, res_reg, var_indexes, binding, dealloc, m, ctx);
-
-#ifdef NEGATION_FIRST
-
-              g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
-              SASSERT(res_reg != execution_context::void_register);
-              make_negation(head_pred, res_preds.size(), ut_len, res_expr, res_reg, dealloc, ctx);
-
-#endif
-
-              expr_ref renamed(m);
-              g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
-              app_ref app_renamed(to_app(renamed), m);
-
-                if (!dealloc)
-                  g_compiler->make_clone(res_reg, res_reg, acc);
-                acc.push_back(instruction::mk_filter_interpreted(res_reg, app_renamed));
-                ///*acc.push_back*/(instruction::mk_filter_interpreted(tail_regs[i], app_renamed)->perform(g_compiler->m_ectx));
+              make_filter(res_expr, interpreted_tail, head_pred, res_reg, dealloc, m, ctx);
 
               dealloc = true;
-            }
-            else if (res_preds.size() != ut_len) { // no filtering, but negation
-
-              expr_ref_vector &res_expr = *it;
-              reg_idx &res_reg = res_regs[i];
-              dealloc = false; // TODO ? that's how it goes in original case
-
-  #ifdef NEGATION_FIRST            
-              g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
-
-              SASSERT(res_preds.size() != ut_len);
-              SASSERT(res_reg != execution_context::void_register);
-              make_negation(head_pred, res_preds.size(), ut_len, res_expr, res_reg, dealloc, ctx);
-  #endif
             }
           }
         }
@@ -1765,6 +1707,7 @@ namespace datalog {
         // using expr_ref_vector instead of app* for updating tail predicates
         vector<expr_ref_vector> pos_tail_preds;
         svector<reg_idx>        pos_tail_regs;
+        
         for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
           SASSERT(g_compiler->m_reg_signatures[tail_regs[i]].size() == r->get_tail(i)->get_num_args()); // TODO
           pos_tail_preds.push_back(expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args()));
@@ -1774,10 +1717,13 @@ namespace datalog {
           pos_tail_regs.push_back(res_reg);
         }
 
-
 #ifdef INTERPRETED_FIRST
         do_filter(ut_len, ft_len, head_pred, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
-#endif // TODO proper ifdefs for other case
+#endif
+
+#ifdef NEGATION_FIRST
+        do_negation(ut_len, ft_len, head_pred, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+#endif
         TRACE("dl", tout << "AFTER: "; for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
           tout << tail_regs[i] << " tail_regs sig size " << g_compiler->m_reg_signatures[tail_regs[i]].size() << " expr size " << pos_tail_preds[i].size() << "\n";
           tout << pos_tail_regs[i] << " pos_tail_regs sig size " << g_compiler->m_reg_signatures[pos_tail_regs[i]].size() << " expr size " << pos_tail_preds[i].size() << "\n";
@@ -1792,7 +1738,7 @@ namespace datalog {
         );
         g_compiler->compile_join_project(r, pos_tail_preds, pos_tail_regs, m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
 
-        g_compiler->add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, ctx, acc);
+        // TODO g_compiler->add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, ctx, acc);
 
         int2ints var_indexes;
 
@@ -1867,7 +1813,21 @@ namespace datalog {
           dealloc = true;
         }
 
+        if (pt_len != 0) {
+          pos_tail_preds.push_back(single_res_expr);
+          pos_tail_regs.push_back(filtered_res);
+        }
 #ifndef INTERPRETED_FIRST
+        do_filter(ut_len, ft_len, head_pred, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
+#endif
+
+#ifndef NEGATION_FIRST
+        do_negation(ut_len, ft_len, head_pred, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+#endif
+
+       
+       #if 0
+//#ifndef INTERPRETED_FIRST
         // add unbounded columns for interpreted filter
         ptr_vector<expr> tail;
         for (unsigned tail_index = ut_len; tail_index < ft_len; ++tail_index) {
@@ -1908,7 +1868,8 @@ namespace datalog {
         }
 #endif
 
-#ifndef NEGATION_FIRST
+#if 0
+        //#ifndef NEGATION_FIRST
         // add at least one column for the negative filter
         if (pt_len != ut_len && filtered_res == execution_context::void_register) {
           relation_signature empty_signature;
@@ -1952,7 +1913,8 @@ namespace datalog {
         }
 #endif
 
-#ifndef INTERPRETED_FIRST
+#if 0
+        //#ifndef INTERPRETED_FIRST
 
         // enforce interpreted tail predicates
         if (!tail.empty()) {

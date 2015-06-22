@@ -525,7 +525,7 @@ namespace datalog {
         for (unsigned i = 1; i < pt_len; ++i) {
           expr_ref_vector a2 = pos_tail_preds[i];
           TRACE("dl", tout << pos_tail_regs[i] << " sig size " << m_reg_signatures[pos_tail_regs[i]].size() << " expr size " << a2.size() << "\n";);
-          SASSERT(m_reg_signatures[pos_tail_regs[i]].size() == a2.size()); // TODO
+          SASSERT(m_reg_signatures[pos_tail_regs[i]].size() == a2.size());
 
           variable_intersection a1a2(m_context.get_manager());
           a1a2.populate(single_res_expr, a2);
@@ -652,7 +652,6 @@ namespace datalog {
           single_res = execution_context::void_register;
         }
         else {
-          //single_res register should never be used in this case
           single_res = pos_tail_regs[0]; // in this case we added a total_relation to pos_tail_regs
           for (unsigned i = 0; i < pos_tail_preds[0].size(); ++i) {
             single_res_expr.push_back(pos_tail_preds[0].get(i));
