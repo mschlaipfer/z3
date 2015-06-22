@@ -486,6 +486,7 @@ namespace datalog {
         for (unsigned i = r->get_positive_tail_size(); i < r->get_uninterpreted_tail_size(); ++i) { // neg
           counter_tail.count_vars(r->get_tail(i));
         }
+        // TODO count interpreted if filter after join
 
         rule_counter::iterator I = counter_tail.begin(), E = counter_tail.end();
         for (; I != E; ++I) {
