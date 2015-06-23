@@ -1026,7 +1026,7 @@ namespace datalog {
     }
     */
     void compiler::add_unbound_columns_for_negation(rule* r, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr, 
-        bool & dealloc, execution_context & ctx, instruction_block & acc) {
+        int2ints & var_indexes, bool & dealloc, execution_context & ctx, instruction_block & acc) {
         uint_set pos_vars;
         u_map<expr*> neg_vars;
         ast_manager& m = m_context.get_manager();
@@ -1063,6 +1063,9 @@ namespace datalog {
             expr* e = it->m_value;
             if (!pos_vars.contains(v)) {
                 single_res_expr.push_back(e);
+                int2ints::entry * entry = var_indexes.insert_if_not_there2(v, unsigned_vector());
+                entry->get_data().m_value.push_back(single_res_expr.size() - 1);
+
                 make_add_unbound_column(r, v, pred, single_res, m.get_sort(e), single_res, dealloc, ctx, acc);
                 TRACE("dl", tout << "Adding unbound column: " << mk_pp(e, m) << "\n";);
             }

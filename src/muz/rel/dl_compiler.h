@@ -196,7 +196,7 @@ namespace datalog {
             execution_context & ctx, instruction_block & acc);
 
         void add_unbound_columns_for_negation(rule* compiled_rule, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr,
-            bool & dealloc, execution_context & ctx, instruction_block& acc);
+            int2ints & var_indexes, bool & dealloc, execution_context & ctx, instruction_block& acc);
         
         void make_duplicate_column(reg_idx src, unsigned col, reg_idx & result, bool reuse, instruction_block & acc);
         

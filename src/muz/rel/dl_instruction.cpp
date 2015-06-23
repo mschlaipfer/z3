@@ -1346,9 +1346,9 @@ namespace datalog {
         return alloc(instr_assert_signature, s, tgt);
     }
 
-#define INTERPRETED_FIRST
+//#define INTERPRETED_FIRST
 //#define FILTER_AND_PROJECT
-#define NEGATION_FIRST
+//#define NEGATION_FIRST
     extern compiler * g_compiler;
     class instr_exec : public instruction {
       rule * r;
@@ -1410,6 +1410,144 @@ namespace datalog {
       }
 #endif
 
+      void make_negation_list(func_decl * head_pred, const unsigned pt_len, const unsigned ut_len,
+        const ptr_vector<variable_intersection> &intersections, const unsigned_vector &apply_now,
+        expr_ref_vector & res_expr, reg_idx & res_reg, bool & dealloc, execution_context & ctx) {
+
+        // add at least one column for the negative filter
+        if (pt_len != ut_len && res_reg == execution_context::void_register) {
+          relation_signature empty_signature;
+          g_compiler->make_full_relation(head_pred, empty_signature, res_reg, ctx, acc);
+        }
+
+        unsigned_vector::const_iterator it = apply_now.begin(), end = apply_now.end();
+        //enforce negative predicates
+        for (unsigned i = 0; it != end; ++it, ++i) {
+          app * neg_tail = r->get_tail(*it);
+          func_decl * neg_pred = neg_tail->get_decl();
+          unsigned_vector t_cols(intersections[i]->size(), intersections[i]->get_cols1());
+          unsigned_vector neg_cols(intersections[i]->size(), intersections[i]->get_cols2());
+
+          unsigned neg_len = neg_tail->get_num_args();
+          for (unsigned i = 0; i < neg_len; i++) {
+            expr * e = neg_tail->get_arg(i);
+            if (is_var(e)) {
+              continue;
+            }
+            SASSERT(is_app(e));
+            relation_sort arg_sort;
+            g_compiler->m_context.get_rel_context()->get_rmanager().from_predicate(neg_pred, i, arg_sort);
+            g_compiler->make_add_constant_column(head_pred, res_reg, arg_sort, to_app(e), res_reg, dealloc, ctx, acc);
+
+            t_cols.push_back(res_expr.size());
+            neg_cols.push_back(i);
+            res_expr.push_back(e);
+          }
+          SASSERT(t_cols.size() == neg_cols.size());
+
+          reg_idx neg_reg = g_compiler->m_pred_regs.find(neg_pred);
+          if (!dealloc)
+            g_compiler->make_clone(res_reg, res_reg, acc);
+          acc.push_back(instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
+            t_cols.c_ptr(), neg_cols.c_ptr()));
+          dealloc = true;
+        }
+      }
+
+
+      void make_negation(func_decl * head_pred, const unsigned pt_len, const unsigned ut_len,
+        expr_ref_vector & res_expr, reg_idx & res_reg, bool & dealloc, execution_context & ctx) {
+
+        // add at least one column for the negative filter
+        // lengths in original rule (DON'T USE res_expr.size())
+        if (pt_len != ut_len && res_reg == execution_context::void_register) {
+          relation_signature empty_signature;
+          g_compiler->make_full_relation(head_pred, empty_signature, res_reg, ctx, acc);
+        }
+
+        //enforce negative predicates
+        for (unsigned j = pt_len; j < ut_len; j++) {
+          app * neg_tail = r->get_tail(j);
+          func_decl * neg_pred = neg_tail->get_decl();
+          variable_intersection neg_intersection(g_compiler->m_context.get_manager());
+          neg_intersection.populate(res_expr, neg_tail);
+          unsigned_vector t_cols(neg_intersection.size(), neg_intersection.get_cols1());
+          unsigned_vector neg_cols(neg_intersection.size(), neg_intersection.get_cols2());
+
+          unsigned neg_len = neg_tail->get_num_args();
+          for (unsigned i = 0; i < neg_len; i++) {
+            expr * e = neg_tail->get_arg(i);
+            if (is_var(e)) {
+              continue;
+            }
+            SASSERT(is_app(e));
+            relation_sort arg_sort;
+            g_compiler->m_context.get_rel_context()->get_rmanager().from_predicate(neg_pred, i, arg_sort);
+            g_compiler->make_add_constant_column(head_pred, res_reg, arg_sort, to_app(e), res_reg, dealloc, ctx, acc);
+
+            t_cols.push_back(res_expr.size());
+            neg_cols.push_back(i);
+            res_expr.push_back(e);
+          }
+          SASSERT(t_cols.size() == neg_cols.size());
+
+          reg_idx neg_reg = g_compiler->m_pred_regs.find(neg_pred);
+          if (!dealloc)
+            g_compiler->make_clone(res_reg, res_reg, acc);
+          acc.push_back(instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
+            t_cols.c_ptr(), neg_cols.c_ptr()));
+          dealloc = true;
+        }
+      }
+
+
+      void do_negation(const unsigned pt_len, const unsigned ut_len, const unsigned ft_len,
+        func_decl * head_pred, bool &dealloc, int2ints & var_indexes, ast_manager & m, int_set & neg_preds_done,
+        vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
+
+#ifndef NEGATION_FIRST
+        SASSERT(!res_preds.empty());
+#endif
+        if (res_preds.empty()) {
+          expr_ref_vector res_expr(m);
+          reg_idx res_reg = execution_context::void_register;
+          dealloc = false; // TODO ? that's how it goes in original case
+          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes, dealloc, ctx, acc);
+          make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
+          res_preds.push_back(res_expr);
+          res_regs.push_back(res_reg);
+        }
+        else {
+          unsigned i = 0;
+          for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
+            it != end; ++it, ++i) {
+            expr_ref_vector &res_expr = *it;
+            reg_idx &res_reg = res_regs[i];
+            g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes, dealloc, ctx, acc);
+            //SASSERT(res_reg != execution_context::void_register);
+            make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
+            /*
+            variable_intersection pos_neg(m);
+            unsigned_vector apply_now;
+            ptr_vector<variable_intersection> intersections; // TODO populating like this ok?
+            for (unsigned i = res_preds.size(); i < ut_len; ++i) {
+              app * neg_tail = r->get_tail(i);
+              pos_neg.populate(res_expr, neg_tail);
+              if (!pos_neg.empty()) {
+                apply_now.push_back(i);
+                intersections.push_back(&pos_neg);
+                neg_preds_done.insert_if_not_there(i);
+              }
+            }
+
+            //g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
+            SASSERT(res_reg != execution_context::void_register);
+            make_negation_list(head_pred, res_preds.size(), ut_len, intersections, apply_now, res_expr, res_reg, dealloc, ctx);
+            */
+          }
+        }
+      }
+
 
       void compute_var_indexes(const expr_ref_vector &pred, int2ints &var_indexes) {
         //enforce equality to constants
@@ -1424,7 +1562,7 @@ namespace datalog {
         }
 
         TRACE("dl", for (int2ints::iterator I = var_indexes.begin(), E = var_indexes.end();
-          I != E; ++I) {
+        I != E; ++I) {
           tout << I->m_key << ": "; print_container(I->m_value, tout); tout << "\n";
         });
       }
@@ -1432,7 +1570,7 @@ namespace datalog {
       void do_var_binding(app_ref & filter_cond, func_decl * head_pred,
         expr_ref_vector & res_expr, reg_idx &res_reg, int2ints & var_indexes,
         expr_ref_vector & binding, bool & dealloc, ast_manager & m, execution_context &ctx) {
-        
+
         g_compiler->m_free_vars(filter_cond);
         // create binding
         binding.resize(g_compiler->m_free_vars.size() + 1);
@@ -1462,145 +1600,10 @@ namespace datalog {
         }
       }
 
-      void do_negation(unsigned ut_len, unsigned ft_len,
-        func_decl * head_pred, bool &dealloc, ast_manager & m, int_set & neg_preds_done,
-        vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
-
-        if (res_preds.empty()) {
-          expr_ref_vector res_expr(m);
-          reg_idx res_reg = execution_context::void_register;
-          dealloc = false; // TODO ? that's how it goes in original case
-          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
-          make_negation(head_pred, res_preds.size(), ut_len, res_expr, res_reg, dealloc, ctx);
-          res_preds.push_back(res_expr);
-          res_regs.push_back(res_reg);
-        }
-        else {
-          unsigned i = 0;
-          for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
-            it != end; ++it, ++i) {
-            expr_ref_vector &res_expr = *it;
-            reg_idx &res_reg = res_regs[i];
-            g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
-            //SASSERT(res_reg != execution_context::void_register);
-            make_negation(head_pred, res_preds.size(), ut_len, res_expr, res_reg, dealloc, ctx);
-            /*
-            variable_intersection pos_neg(m);
-            unsigned_vector apply_now;
-            ptr_vector<variable_intersection> intersections; // TODO populating like this ok?
-            for (unsigned i = res_preds.size(); i < ut_len; ++i) {
-              app * neg_tail = r->get_tail(i);
-              pos_neg.populate(res_expr, neg_tail);
-              if (!pos_neg.empty()) {
-                apply_now.push_back(i);
-                intersections.push_back(&pos_neg);
-                neg_preds_done.insert_if_not_there(i);
-              }
-            }
-
-            //g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
-            SASSERT(res_reg != execution_context::void_register);
-            make_negation_list(head_pred, res_preds.size(), ut_len, intersections, apply_now, res_expr, res_reg, dealloc, ctx);
-            */
-          }
-        }
-      }
-
-      void make_negation_list(func_decl * head_pred, unsigned pt_len, unsigned ut_len,
-        const ptr_vector<variable_intersection> &intersections, const unsigned_vector &apply_now,
-        expr_ref_vector & res_expr, reg_idx & res_reg, bool & dealloc, execution_context & ctx) {
-
-        // add at least one column for the negative filter
-        if (pt_len != ut_len && res_reg == execution_context::void_register) {
-          relation_signature empty_signature;
-          g_compiler->make_full_relation(head_pred, empty_signature, res_reg, ctx, acc);
-        }
-
-        unsigned_vector::const_iterator it = apply_now.begin(), end = apply_now.end();
-        //enforce negative predicates
-        for (unsigned i = 0; it != end; ++it, ++i) {
-          app * neg_tail = r->get_tail(*it);
-          func_decl * neg_pred = neg_tail->get_decl();
-          unsigned_vector t_cols(intersections[i]->size(), intersections[i]->get_cols1());
-          unsigned_vector neg_cols(intersections[i]->size(), intersections[i]->get_cols2());
-
-          unsigned neg_len = neg_tail->get_num_args();
-          for (unsigned i = 0; i<neg_len; i++) {
-            expr * e = neg_tail->get_arg(i);
-            if (is_var(e)) {
-              continue;
-            }
-            SASSERT(is_app(e));
-            relation_sort arg_sort;
-            g_compiler->m_context.get_rel_context()->get_rmanager().from_predicate(neg_pred, i, arg_sort);
-            g_compiler->make_add_constant_column(head_pred, res_reg, arg_sort, to_app(e), res_reg, dealloc, ctx, acc);
-
-            t_cols.push_back(res_expr.size());
-            neg_cols.push_back(i);
-            res_expr.push_back(e);
-          }
-          SASSERT(t_cols.size() == neg_cols.size());
-
-          reg_idx neg_reg = g_compiler->m_pred_regs.find(neg_pred);
-          if (!dealloc)
-            g_compiler->make_clone(res_reg, res_reg, acc);
-          acc.push_back(instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
-            t_cols.c_ptr(), neg_cols.c_ptr()));
-          dealloc = true;
-        }
-      }
-
-
-      void make_negation(func_decl * head_pred, unsigned pt_len, unsigned ut_len,
-         expr_ref_vector & res_expr, reg_idx & res_reg, bool & dealloc, execution_context & ctx) {
-
-        // add at least one column for the negative filter
-        if (pt_len != ut_len && res_reg == execution_context::void_register) {
-          relation_signature empty_signature;
-          g_compiler->make_full_relation(head_pred, empty_signature, res_reg, ctx, acc);
-        }
-
-        //enforce negative predicates
-        for (unsigned j = pt_len; j < ut_len; j++) {
-          app * neg_tail = r->get_tail(j);
-          func_decl * neg_pred = neg_tail->get_decl();
-          variable_intersection neg_intersection(g_compiler->m_context.get_manager());
-          neg_intersection.populate(res_expr, neg_tail);
-          unsigned_vector t_cols(neg_intersection.size(), neg_intersection.get_cols1());
-          unsigned_vector neg_cols(neg_intersection.size(), neg_intersection.get_cols2());
-
-          unsigned neg_len = neg_tail->get_num_args();
-          for (unsigned i = 0; i<neg_len; i++) {
-            expr * e = neg_tail->get_arg(i);
-            if (is_var(e)) {
-              continue;
-            }
-            SASSERT(is_app(e));
-            relation_sort arg_sort;
-            g_compiler->m_context.get_rel_context()->get_rmanager().from_predicate(neg_pred, i, arg_sort);
-            g_compiler->make_add_constant_column(head_pred, res_reg, arg_sort, to_app(e), res_reg, dealloc, ctx, acc);
-
-            t_cols.push_back(res_expr.size());
-            neg_cols.push_back(i);
-            res_expr.push_back(e);
-          }
-          SASSERT(t_cols.size() == neg_cols.size());
-
-          reg_idx neg_reg = g_compiler->m_pred_regs.find(neg_pred);
-          if (!dealloc)
-            g_compiler->make_clone(res_reg, res_reg, acc);
-          acc.push_back(instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
-            t_cols.c_ptr(), neg_cols.c_ptr()));
-          dealloc = true;
-        }
-      }
-
-
       void make_filter(expr_ref_vector &res_expr, ptr_vector<expr> &interpreted_tail, func_decl * head_pred,
-          reg_idx &res_reg, bool &dealloc, ast_manager & m, execution_context & ctx) {
+        reg_idx &res_reg, bool &dealloc, int2ints &var_indexes, ast_manager & m, execution_context & ctx) {
         // add unbounded columns for interpreted filter
         expr_ref_vector binding(m);
-        int2ints var_indexes;
         compute_var_indexes(res_expr, var_indexes);
 
         app_ref filter_cond(interpreted_tail.size() == 1 ? to_app(interpreted_tail.back()) : m.mk_and(interpreted_tail.size(), interpreted_tail.c_ptr()), m);
@@ -1614,8 +1617,8 @@ namespace datalog {
         acc.push_back(instruction::mk_filter_interpreted(res_reg, app_renamed));
       }
 
-      void do_filter(unsigned ut_len, unsigned ft_len,
-        func_decl * head_pred, bool &dealloc, ast_manager & m, 
+      void do_filter(const unsigned ut_len, const unsigned ft_len,
+        func_decl * head_pred, bool &dealloc, int2ints & var_indexes, ast_manager & m,
         vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
 
         ptr_vector<expr> interpreted_tail;
@@ -1623,6 +1626,9 @@ namespace datalog {
           interpreted_tail.push_back(r->get_tail(tail_index));
         }
 
+#ifndef FILTER_FIRST
+        SASSERT(!res_preds.empty());
+#endif
         if (res_preds.empty()) {
           // add unbounded columns for interpreted filter
           if (!interpreted_tail.empty()) {
@@ -1630,7 +1636,7 @@ namespace datalog {
             reg_idx res_reg = execution_context::void_register;
             dealloc = false; // TODO ? that's how it goes in original case
 
-            make_filter(res_expr, interpreted_tail, head_pred, res_reg, dealloc, m, ctx);
+            make_filter(res_expr, interpreted_tail, head_pred, res_reg, dealloc, var_indexes, m, ctx);
 
             res_preds.push_back(res_expr);
             res_regs.push_back(res_reg);
@@ -1644,7 +1650,7 @@ namespace datalog {
               expr_ref_vector &res_expr = *it;
               reg_idx &res_reg = res_regs[i];
 
-              make_filter(res_expr, interpreted_tail, head_pred, res_reg, dealloc, m, ctx);
+              make_filter(res_expr, interpreted_tail, head_pred, res_reg, dealloc, var_indexes, m, ctx);
 
               dealloc = true;
             }
@@ -1677,9 +1683,9 @@ namespace datalog {
         unsigned head_len = h->get_num_args();
         func_decl * head_pred = h->get_decl();
 
-        unsigned pt_len = r->get_positive_tail_size();
-        unsigned ut_len = r->get_uninterpreted_tail_size();
-        unsigned ft_len = r->get_tail_size(); // full tail
+        const unsigned pt_len = r->get_positive_tail_size();
+        const unsigned ut_len = r->get_uninterpreted_tail_size();
+        const unsigned ft_len = r->get_tail_size(); // full tail
 
         reg_idx single_res;
         expr_ref_vector single_res_expr(m);
@@ -1717,8 +1723,9 @@ namespace datalog {
           pos_tail_regs.push_back(res_reg);
         }
 
+       int2ints var_indexes;
 #ifdef INTERPRETED_FIRST
-        do_filter(ut_len, ft_len, head_pred, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
+        do_filter(ut_len, ft_len, head_pred, dealloc, var_indexes, m, pos_tail_preds, pos_tail_regs, ctx);
 #endif
 
 #ifdef NEGATION_FIRST
@@ -1737,24 +1744,27 @@ namespace datalog {
           }
         );
         g_compiler->compile_join_project(r, pos_tail_preds, pos_tail_regs, m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
+        pos_tail_preds.reset();
+        pos_tail_regs.reset();
 
+        pos_tail_preds.push_back(single_res_expr);
+        pos_tail_regs.push_back(single_res);
         // TODO g_compiler->add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, ctx, acc);
 
-        int2ints var_indexes;
 
-        reg_idx filtered_res = single_res;
+        //reg_idx filtered_res = pos_tail_regs[0];
         {
           //enforce equality to constants
-          unsigned srlen = single_res_expr.size();
-          SASSERT((single_res == execution_context::void_register) ? (srlen == 0) : (srlen == g_compiler->m_reg_signatures[single_res].size()));
+          unsigned srlen = pos_tail_preds[0].size();
+          SASSERT((pos_tail_regs[0] == execution_context::void_register) ? (srlen == 0) : (srlen == g_compiler->m_reg_signatures[pos_tail_regs[0]].size()));
           for (unsigned i = 0; i<srlen; i++) {
-            expr * exp = single_res_expr[i].get();
+            expr * exp = pos_tail_preds[0][i].get();
             if (is_app(exp)) {
               SASSERT(g_compiler->m_context.get_decl_util().is_numeral_ext(exp));
               relation_element value = to_app(exp);
               if (!dealloc)
-                g_compiler->make_clone(filtered_res, filtered_res, acc);
-              acc.push_back(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), filtered_res, value, i));
+                g_compiler->make_clone(pos_tail_regs[0], pos_tail_regs[0], acc);
+              acc.push_back(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), pos_tail_regs[0], value, i));
               ///*acc.push_back*/(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), filtered_res, value, i)->perform(g_compiler->m_ectx));
               dealloc = true;
             }
@@ -1790,7 +1800,7 @@ namespace datalog {
                   offsets.push_back(i);
                 }
               }
-              offsets.push_back(single_res_expr.size());
+              offsets.push_back(pos_tail_preds[0].size());
             }
 
             // check if all indexes are from a single predicate
@@ -1807,22 +1817,17 @@ namespace datalog {
               continue;
           }
           if (!dealloc)
-            g_compiler->make_clone(filtered_res, filtered_res, acc);
-          acc.push_back(instruction::mk_filter_identical(filtered_res, indexes.size(), indexes.c_ptr()));
+            g_compiler->make_clone(pos_tail_regs[0], pos_tail_regs[0], acc);
+          acc.push_back(instruction::mk_filter_identical(pos_tail_regs[0], indexes.size(), indexes.c_ptr()));
           ///*acc.push_back*/(instruction::mk_filter_identical(filtered_res, indexes.size(), indexes.c_ptr())->perform(g_compiler->m_ectx));
           dealloc = true;
         }
-
-        if (pt_len != 0) {
-          pos_tail_preds.push_back(single_res_expr);
-          pos_tail_regs.push_back(filtered_res);
-        }
 #ifndef INTERPRETED_FIRST
-        do_filter(ut_len, ft_len, head_pred, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
+        do_filter(ut_len, ft_len, head_pred, dealloc, var_indexes, m, pos_tail_preds, pos_tail_regs, ctx);
 #endif
 
 #ifndef NEGATION_FIRST
-        do_negation(ut_len, ft_len, head_pred, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+        do_negation(pt_len, ut_len, ft_len, head_pred, dealloc, var_indexes, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
 #endif
 
        
@@ -2068,7 +2073,7 @@ namespace datalog {
                 unsigned_vector & binding_indexes = e->get_data().m_value;
                 aci.kind = g_compiler->ACK_BOUND_VAR;
                 aci.source_column = binding_indexes.back();
-                SASSERT(aci.source_column<single_res_expr.size()); //we bind only to existing columns
+                SASSERT(aci.source_column < pos_tail_preds[0].size()); //we bind only to existing columns
                 if (binding_indexes.size()>1) {
                   //if possible, we do not want multiple head columns
                   //point to a single column in the intermediate table,
@@ -2092,8 +2097,9 @@ namespace datalog {
           }
           SASSERT(head_acis.size() == head_len);
 
+          SASSERT(pos_tail_regs.size() > 0);
           reg_idx new_head_reg;
-          g_compiler->make_assembling_code(r, head_pred, filtered_res, head_acis, new_head_reg, dealloc, ctx, acc);
+          g_compiler->make_assembling_code(r, head_pred, pos_tail_regs[0], head_acis, new_head_reg, dealloc, ctx, acc);
 
           //update the head relation
           g_compiler->make_union(new_head_reg, head_reg, delta_reg, use_widening, acc);
