@@ -1626,7 +1626,7 @@ namespace datalog {
           interpreted_tail.push_back(r->get_tail(tail_index));
         }
 
-#ifndef FILTER_FIRST
+#ifndef INTERPRETED_FIRST
         SASSERT(!res_preds.empty());
 #endif
         if (res_preds.empty()) {
@@ -1666,6 +1666,7 @@ namespace datalog {
           tail_regs.push_back(regs[i]);
         }
       }
+
       virtual bool perform(execution_context & ctx) {
 
         TRACE("dl", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
@@ -1710,17 +1711,22 @@ namespace datalog {
         TRACE("dl", tout << "BEFORE: "; for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
           tout << tail_regs[i] << " sig size " << g_compiler->m_reg_signatures[tail_regs[i]].size() << " expr size " << r->get_tail(i)->get_num_args() << "\n";
         });
+
         // using expr_ref_vector instead of app* for updating tail predicates
         vector<expr_ref_vector> pos_tail_preds;
         svector<reg_idx>        pos_tail_regs;
-        
-        for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
-          SASSERT(g_compiler->m_reg_signatures[tail_regs[i]].size() == r->get_tail(i)->get_num_args()); // TODO
+        // set up modifiable predicates / tmp registers
+        for (unsigned i = 0; i < pt_len; ++i) {
+          SASSERT(g_compiler->m_reg_signatures[tail_regs[i]].size() == r->get_tail(i)->get_num_args());
           pos_tail_preds.push_back(expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args()));
-          reg_idx res_reg; // create "local" register to match "local" expr
-          // TODO only clone if modified (make_selec_equal_and_project does? in compile_join_project)
-          g_compiler->make_clone(tail_regs[i], res_reg, acc);
-          pos_tail_regs.push_back(res_reg);
+          if (pt_len == 1 && ft_len == 1) { // no modification to predicate, so no need to clone
+            pos_tail_regs.push_back(tail_regs[i]);
+          }
+          else {
+            reg_idx res_reg; // create "local" register to match "local" expr
+            g_compiler->make_clone(tail_regs[i], res_reg, acc);
+            pos_tail_regs.push_back(res_reg);
+          }
         }
 
        int2ints var_indexes;
@@ -1729,7 +1735,7 @@ namespace datalog {
 #endif
 
 #ifdef NEGATION_FIRST
-        do_negation(ut_len, ft_len, head_pred, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+        do_negation(pt_len, ut_len, ft_len, head_pred, dealloc, var_indexes, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
 #endif
         TRACE("dl", tout << "AFTER: "; for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
           tout << tail_regs[i] << " tail_regs sig size " << g_compiler->m_reg_signatures[tail_regs[i]].size() << " expr size " << pos_tail_preds[i].size() << "\n";
