@@ -474,7 +474,6 @@ namespace datalog {
       // leave one column copy per var in the head (avoids later duplication)
       counter.count_vars(r->get_head(), -1);
 
-      // TODO interpreted should be done
       // take rest of positive tail, interp & neg preds into account (at least 1 column copy if referenced)
       unsigned n = r->get_tail_size();
       if (n > tail_offset) {
@@ -483,10 +482,13 @@ namespace datalog {
         for (unsigned i = tail_offset; i < pos_tail_preds.size(); ++i) { // rest of pos
           counter_tail.count_vars(pos_tail_preds[i]);
         }
+        // TODO do not count if interpreted and neg before join
         for (unsigned i = r->get_positive_tail_size(); i < r->get_uninterpreted_tail_size(); ++i) { // neg
           counter_tail.count_vars(r->get_tail(i));
         }
-        // TODO count interpreted if filter after join
+        for (unsigned i = r->get_uninterpreted_tail_size(); i < n; ++i) { // interpreted
+          counter_tail.count_vars(r->get_tail(i));
+        }
 
         rule_counter::iterator I = counter_tail.begin(), E = counter_tail.end();
         for (; I != E; ++I) {
