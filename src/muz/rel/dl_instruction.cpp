@@ -1503,7 +1503,7 @@ namespace datalog {
 
 
       void do_negation(const unsigned pt_len, const unsigned ut_len, const unsigned ft_len,
-        func_decl * head_pred, bool &dealloc, int2ints & var_indexes, ast_manager & m, int_set & neg_preds_done,
+        func_decl * head_pred, vector<int2ints> & var_indexes, bool &dealloc, ast_manager & m, int_set & neg_preds_done,
         vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
 
 #ifndef NEGATION_FIRST
@@ -1513,7 +1513,8 @@ namespace datalog {
           expr_ref_vector res_expr(m);
           reg_idx res_reg = execution_context::void_register;
           dealloc = false; // TODO ? that's how it goes in original case
-          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes, dealloc, ctx, acc);
+          var_indexes.push_back(int2ints());
+          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[0], dealloc, ctx, acc);
           make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
           res_preds.push_back(res_expr);
           res_regs.push_back(res_reg);
@@ -1524,7 +1525,7 @@ namespace datalog {
             it != end; ++it, ++i) {
             expr_ref_vector &res_expr = *it;
             reg_idx &res_reg = res_regs[i];
-            g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes, dealloc, ctx, acc);
+            g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[i], dealloc, ctx, acc);
             //SASSERT(res_reg != execution_context::void_register);
             make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
             /*
@@ -1602,10 +1603,9 @@ namespace datalog {
       }
 
       void make_filter(expr_ref_vector &res_expr, ptr_vector<expr> &interpreted_tail, func_decl * head_pred,
-        reg_idx &res_reg, bool &dealloc, int2ints &var_indexes, ast_manager & m, execution_context & ctx) {
+        int2ints & var_indexes, reg_idx &res_reg, bool &dealloc, ast_manager & m, execution_context & ctx) {
         // add unbounded columns for interpreted filter
         expr_ref_vector binding(m);
-        compute_var_indexes(res_expr, var_indexes);
 
         app_ref filter_cond(interpreted_tail.size() == 1 ? to_app(interpreted_tail.back()) : m.mk_and(interpreted_tail.size(), interpreted_tail.c_ptr()), m);
         do_var_binding(filter_cond, head_pred, res_expr, res_reg, var_indexes, binding, dealloc, m, ctx);
@@ -1619,7 +1619,7 @@ namespace datalog {
       }
 
       void do_filter(const unsigned ut_len, const unsigned ft_len,
-        func_decl * head_pred, bool &dealloc, int2ints & var_indexes, ast_manager & m,
+        func_decl * head_pred, vector<int2ints> & var_indexes, bool &dealloc, ast_manager & m,
         vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
 
         ptr_vector<expr> interpreted_tail;
@@ -1636,8 +1636,9 @@ namespace datalog {
             expr_ref_vector res_expr(m);
             reg_idx res_reg = execution_context::void_register;
             dealloc = false; // TODO ? that's how it goes in original case
+            var_indexes.push_back(int2ints());
 
-            make_filter(res_expr, interpreted_tail, head_pred, res_reg, dealloc, var_indexes, m, ctx);
+            make_filter(res_expr, interpreted_tail, head_pred, var_indexes[0], res_reg, dealloc, m, ctx);
 
             res_preds.push_back(res_expr);
             res_regs.push_back(res_reg);
@@ -1651,7 +1652,7 @@ namespace datalog {
               expr_ref_vector &res_expr = *it;
               reg_idx &res_reg = res_regs[i];
 
-              make_filter(res_expr, interpreted_tail, head_pred, res_reg, dealloc, var_indexes, m, ctx);
+              make_filter(res_expr, interpreted_tail, head_pred, var_indexes[i], res_reg, dealloc, m, ctx);
 
               dealloc = true;
             }
@@ -1691,6 +1692,7 @@ namespace datalog {
 
         reg_idx single_res;
         expr_ref_vector single_res_expr(m);
+        int2ints single_var_indexes;
 
         // used for computing whether col equality needs to be established
         unsigned_vector belongs_to;
@@ -1699,13 +1701,26 @@ namespace datalog {
         // whether to dealloc the previous result
         bool dealloc = true;
 
+#ifdef INTERPRETED_FIRST
+        bool filter_before = true;
+#else
+        bool filter_before = false;
+#endif
+#ifdef NEGATION_FIRST
+        bool negation_before = true;
+#else
+        bool negation_before = false;
+#endif
+
         // using expr_ref_vector instead of app* for updating tail predicates
         vector<expr_ref_vector> pos_tail_preds;
         svector<reg_idx>        pos_tail_regs;
-        // set up modifiable predicates / tmp registers
+        vector<int2ints>        pos_tail_var_indexes;
+        // set up modifiable predicates / tmp registers / var_indexes
         for (unsigned i = 0; i < pt_len; ++i) {
           SASSERT(g_compiler->m_reg_signatures[tail_regs[i]].size() == r->get_tail(i)->get_num_args());
-          pos_tail_preds.push_back(expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args()));
+          expr_ref_vector res_expr = expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args());
+          pos_tail_preds.push_back(res_expr);
 
 #ifdef INTERPRETED_FIRST // TODO does negation update in-place?
           if (pt_len == 1 && ft_len == 1) { // no modification to predicate, so no need to clone
@@ -1719,15 +1734,20 @@ namespace datalog {
             pos_tail_regs.push_back(res_reg); 
           }
 #endif
-        }
 
-       int2ints var_indexes;
+          int2ints var_indexes;
+#if defined INTERPRETED_FIRST || defined NEGATION_FIRST
+          compute_var_indexes(res_expr, var_indexes);
+#endif
+          pos_tail_var_indexes.push_back(var_indexes);
+        }
+        
 #ifdef INTERPRETED_FIRST
-        do_filter(ut_len, ft_len, head_pred, dealloc, var_indexes, m, pos_tail_preds, pos_tail_regs, ctx);
+        do_filter(ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 #endif
 
 #ifdef NEGATION_FIRST
-        do_negation(pt_len, ut_len, ft_len, head_pred, dealloc, var_indexes, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+        do_negation(pt_len, ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
 #endif
 
         /***************************************************************************
@@ -1736,43 +1756,38 @@ namespace datalog {
         *
         /**************************************************************************/
 
-        g_compiler->compile_join_project(r, pos_tail_preds, pos_tail_regs, m, pt_len, belongs_to, single_res, single_res_expr, dealloc, acc);
+        g_compiler->compile_join_project(r, pos_tail_preds, pos_tail_regs, m, pt_len,
+          belongs_to, single_res, single_res_expr, filter_before, negation_before, dealloc, acc);
+
         pos_tail_preds.reset();
         pos_tail_regs.reset();
+        pos_tail_var_indexes.reset();
 
-        pos_tail_preds.push_back(single_res_expr);
-        pos_tail_regs.push_back(single_res);
-        // TODO g_compiler->add_unbound_columns_for_negation(r, head_pred, single_res, single_res_expr, dealloc, ctx, acc);
-
-
-        //reg_idx filtered_res = pos_tail_regs[0];
         {
           //enforce equality to constants
-          unsigned srlen = pos_tail_preds[0].size();
-          SASSERT((pos_tail_regs[0] == execution_context::void_register) ? (srlen == 0) : (srlen == g_compiler->m_reg_signatures[pos_tail_regs[0]].size()));
+          unsigned srlen = single_res_expr.size();
+          SASSERT((single_res == execution_context::void_register) ? (srlen == 0) : (srlen == g_compiler->m_reg_signatures[single_res].size()));
           for (unsigned i = 0; i<srlen; i++) {
-            expr * exp = pos_tail_preds[0][i].get();
+            expr * exp = single_res_expr[i].get();
             if (is_app(exp)) {
               SASSERT(g_compiler->m_context.get_decl_util().is_numeral_ext(exp));
               relation_element value = to_app(exp);
               if (!dealloc)
-                g_compiler->make_clone(pos_tail_regs[0], pos_tail_regs[0], acc);
-              acc.push_back(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), pos_tail_regs[0], value, i));
-              ///*acc.push_back*/(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), filtered_res, value, i)->perform(g_compiler->m_ectx));
+                g_compiler->make_clone(single_res, single_res, acc);
+              acc.push_back(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), single_res, value, i));
               dealloc = true;
             }
             else {
               SASSERT(is_var(exp));
               unsigned var_num = to_var(exp)->get_idx();
-              int2ints::entry * e = var_indexes.insert_if_not_there2(var_num, unsigned_vector());
+              int2ints::entry * e = single_var_indexes.insert_if_not_there2(var_num, unsigned_vector());
               e->get_data().m_value.push_back(i);
             }
           }
         }
-
         //enforce equality of columns
-        int2ints::iterator vit = var_indexes.begin();
-        int2ints::iterator vend = var_indexes.end();
+        int2ints::iterator vit = single_var_indexes.begin();
+        int2ints::iterator vend = single_var_indexes.end();
         for (; vit != vend; ++vit) {
           int2ints::key_data & k = *vit;
           unsigned_vector & indexes = k.m_value;
@@ -1793,7 +1808,7 @@ namespace datalog {
                   offsets.push_back(i);
                 }
               }
-              offsets.push_back(pos_tail_preds[0].size());
+              offsets.push_back(single_res_expr.size());
             }
 
             // check if all indexes are from a single predicate
@@ -1810,11 +1825,14 @@ namespace datalog {
               continue;
           }
           if (!dealloc)
-            g_compiler->make_clone(pos_tail_regs[0], pos_tail_regs[0], acc);
-          acc.push_back(instruction::mk_filter_identical(pos_tail_regs[0], indexes.size(), indexes.c_ptr()));
-          ///*acc.push_back*/(instruction::mk_filter_identical(filtered_res, indexes.size(), indexes.c_ptr())->perform(g_compiler->m_ectx));
+            g_compiler->make_clone(single_res, single_res, acc);
+          acc.push_back(instruction::mk_filter_identical(single_res, indexes.size(), indexes.c_ptr()));
           dealloc = true;
         }
+
+        pos_tail_preds.push_back(single_res_expr);
+        pos_tail_regs.push_back(single_res);
+        pos_tail_var_indexes.push_back(single_var_indexes);
 
         /***************************************************************************
         *
@@ -1824,12 +1842,12 @@ namespace datalog {
 
 
 
-#ifndef NEGATION_FIRST
-        do_negation(pt_len, ut_len, ft_len, head_pred, dealloc, var_indexes, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+#ifndef INTERPRETED_FIRST
+        do_filter(ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 #endif
 
-#ifndef INTERPRETED_FIRST
-        do_filter(ut_len, ft_len, head_pred, dealloc, var_indexes, m, pos_tail_preds, pos_tail_regs, ctx);
+#ifndef NEGATION_FIRST
+        do_negation(pt_len, ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
 #endif
 
 #if 0
@@ -1904,6 +1922,9 @@ namespace datalog {
         }
 #endif
 
+        SASSERT(pos_tail_preds.size() == 1);
+        SASSERT(pos_tail_regs.size() == 1);
+        SASSERT(pos_tail_var_indexes.size() == 1);
         {
           //put together the columns of head relation
           relation_signature & head_sig = g_compiler->m_reg_signatures[head_reg];
@@ -1916,7 +1937,7 @@ namespace datalog {
             expr * exp = h->get_arg(i);
             if (is_var(exp)) {
               unsigned var_num = to_var(exp)->get_idx();
-              int2ints::entry * e = var_indexes.find_core(var_num);
+              int2ints::entry * e = pos_tail_var_indexes[0].find_core(var_num);
               if (e) {
                 unsigned_vector & binding_indexes = e->get_data().m_value;
                 aci.kind = g_compiler->ACK_BOUND_VAR;

@@ -469,7 +469,7 @@ namespace datalog {
     
     void compiler::get_local_indexes_for_projection(rule *r, const vector<expr_ref_vector> & pos_tail_preds,
       const expr_ref_vector & intm_result,
-      unsigned tail_offset, unsigned_vector & res) {
+      unsigned tail_offset, bool filter_before, bool negation_before, unsigned_vector & res) {
       rule_counter counter;
       // leave one column copy per var in the head (avoids later duplication)
       counter.count_vars(r->get_head(), -1);
@@ -482,12 +482,15 @@ namespace datalog {
         for (unsigned i = tail_offset; i < pos_tail_preds.size(); ++i) { // rest of pos
           counter_tail.count_vars(pos_tail_preds[i]);
         }
-        // TODO do not count if interpreted and neg before join
-        for (unsigned i = r->get_positive_tail_size(); i < r->get_uninterpreted_tail_size(); ++i) { // neg
-          counter_tail.count_vars(r->get_tail(i));
+        if (!negation_before) {
+          for (unsigned i = r->get_positive_tail_size(); i < r->get_uninterpreted_tail_size(); ++i) { // neg
+            counter_tail.count_vars(r->get_tail(i));
+          }
         }
-        for (unsigned i = r->get_uninterpreted_tail_size(); i < n; ++i) { // interpreted
-          counter_tail.count_vars(r->get_tail(i));
+        if (!filter_before) {
+          for (unsigned i = r->get_uninterpreted_tail_size(); i < n; ++i) { // interpreted
+            counter_tail.count_vars(r->get_tail(i));
+          }
         }
 
         rule_counter::iterator I = counter_tail.begin(), E = counter_tail.end();
@@ -507,9 +510,10 @@ namespace datalog {
     }
 
     void compiler::compile_join_project(rule *r, const vector<expr_ref_vector> & pos_tail_preds,
-        const svector<reg_idx> & pos_tail_regs, const ast_manager & m,
-        unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res, 
-        expr_ref_vector & single_res_expr, bool & dealloc, instruction_block & acc) {
+        const svector<reg_idx> & pos_tail_regs, 
+        const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res, 
+        expr_ref_vector & single_res_expr, bool filter_before, bool negation_before,
+        bool & dealloc, instruction_block & acc) {
 
       if (pt_len > 2) {
         // Should also work if pt_len <= 2, but special cases should be faster
@@ -533,7 +537,7 @@ namespace datalog {
           a1a2.populate(single_res_expr, a2);
 
           unsigned_vector curr_removed_cols;
-          get_local_indexes_for_projection(r, pos_tail_preds, single_res_expr, i + 1, curr_removed_cols);
+          get_local_indexes_for_projection(r, pos_tail_preds, single_res_expr, i + 1, filter_before, negation_before, curr_removed_cols);
           no_projection &= curr_removed_cols.empty();
           
           join_cols.push_back(a1a2);
@@ -591,7 +595,7 @@ namespace datalog {
         a1a2.populate(a1, a2);
 
         unsigned_vector removed_cols;
-        get_local_indexes_for_projection(r, pos_tail_preds, a1, 2, removed_cols);
+        get_local_indexes_for_projection(r, pos_tail_preds, a1, 2, filter_before, negation_before, removed_cols);
 
         if (removed_cols.empty()) {
           make_join(t1_reg, t2_reg, a1a2, single_res, false, acc);
@@ -1027,7 +1031,7 @@ namespace datalog {
         m_instruction_observer.finish_rule();
     }
     */
-    void compiler::add_unbound_columns_for_negation(rule* r, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr, 
+    void compiler::add_unbound_columns_for_negation(rule* r, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr,
         int2ints & var_indexes, bool & dealloc, execution_context & ctx, instruction_block & acc) {
         uint_set pos_vars;
         u_map<expr*> neg_vars;
@@ -1065,6 +1069,7 @@ namespace datalog {
             expr* e = it->m_value;
             if (!pos_vars.contains(v)) {
                 single_res_expr.push_back(e);
+
                 int2ints::entry * entry = var_indexes.insert_if_not_there2(v, unsigned_vector());
                 entry->get_data().m_value.push_back(single_res_expr.size() - 1);
 
