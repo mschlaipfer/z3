@@ -1347,8 +1347,8 @@ namespace datalog {
         return alloc(instr_assert_signature, s, tgt);
     }
 
-#define INTERPRETED_FIRST
-#define NEGATION_FIRST
+//#define INTERPRETED_FIRST
+//#define NEGATION_FIRST
 //#define FILTER_AND_PROJECT
     extern compiler * g_compiler;
     class instr_exec : public instruction {
@@ -1412,7 +1412,7 @@ namespace datalog {
 #endif
 
       void make_negation_list(func_decl * head_pred, unsigned pt_len, unsigned ut_len,
-        const ptr_vector<variable_intersection> &intersections, const unsigned_vector &apply_now,
+        const ptr_vector<variable_intersection> &intersections, const int_set &apply_now,
         expr_ref_vector & res_expr, reg_idx & res_reg, bool & dealloc, execution_context & ctx) {
 
         // add at least one column for the negative filter
@@ -1421,7 +1421,7 @@ namespace datalog {
           g_compiler->make_full_relation(head_pred, empty_signature, res_reg, ctx, acc);
         }
 
-        unsigned_vector::const_iterator it = apply_now.begin(), end = apply_now.end();
+        int_set::iterator it = apply_now.begin(), end = apply_now.end();
         //enforce negative predicates
         for (unsigned i = 0; it != end; ++it, ++i) {
           app * neg_tail = r->get_tail(*it);
@@ -1514,7 +1514,7 @@ namespace datalog {
           reg_idx res_reg = execution_context::void_register;
           var_indexes.push_back(int2ints());
           dealloc = false; // TODO ? that's how it goes in original case
-
+          
           g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[0], dealloc, ctx, acc);
           make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
           res_preds.push_back(res_expr);
@@ -1527,26 +1527,26 @@ namespace datalog {
             expr_ref_vector &res_expr = *it;
             reg_idx &res_reg = res_regs[i];
             g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[i], dealloc, ctx, acc);
-            //SASSERT(res_reg != execution_context::void_register);
             make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
-            /*
+            
+#if 0
             variable_intersection pos_neg(m);
-            unsigned_vector apply_now;
+            int_set apply_now;
             ptr_vector<variable_intersection> intersections; // TODO populating like this ok?
-            for (unsigned i = res_preds.size(); i < ut_len; ++i) {
-              app * neg_tail = r->get_tail(i);
+            for (unsigned j = pt_len; j < ut_len; ++j) { // pt_len?
+              app * neg_tail = r->get_tail(j);
               pos_neg.populate(res_expr, neg_tail);
               if (!pos_neg.empty()) {
-                apply_now.push_back(i);
+                apply_now.insert_if_not_there(j);
                 intersections.push_back(&pos_neg);
-                neg_preds_done.insert_if_not_there(i);
+                neg_preds_done.insert_if_not_there(j);
               }
             }
 
-            //g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, dealloc, ctx, acc);
+            g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[i], apply_now, dealloc, ctx, acc);
             SASSERT(res_reg != execution_context::void_register);
             make_negation_list(head_pred, res_preds.size(), ut_len, intersections, apply_now, res_expr, res_reg, dealloc, ctx);
-            */
+#endif
           }
         }
       }
@@ -1884,9 +1884,9 @@ namespace datalog {
 #endif
           pos_tail_var_indexes.push_back(var_indexes);
         }
-
+        int_set neg_preds_done;
 #ifdef NEGATION_FIRST
-        do_negation(pt_len, ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+        do_negation(pt_len, ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, neg_preds_done, pos_tail_preds, pos_tail_regs, ctx);
 #endif
 
 #ifdef INTERPRETED_FIRST
@@ -1901,6 +1901,28 @@ namespace datalog {
 
 #ifndef INTERPRETED_FIRST
         do_filter(ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
+#endif
+
+#if 0
+        if (neg_preds_done.size() < ut_len - pt_len) {
+          expr_ref_vector res_expr = pos_tail_preds[0];
+          reg_idx res_reg = pos_tail_regs[0];
+
+          variable_intersection pos_neg(m);
+          int_set apply_now;
+          ptr_vector<variable_intersection> intersections; // TODO populating like this ok?
+          for (unsigned j = pt_len; j < ut_len; ++j) {
+            app * neg_tail = r->get_tail(j);
+            pos_neg.populate(res_expr, neg_tail);
+            if (!neg_preds_done.contains(j)) {
+              apply_now.insert_if_not_there(j);
+              intersections.push_back(&pos_neg);
+            }
+          }
+
+          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, pos_tail_var_indexes[0], apply_now, dealloc, ctx, acc);
+          make_negation_list(head_pred, pos_tail_preds.size(), ut_len, intersections, apply_now, res_expr, res_reg, dealloc, ctx);
+        }
 #endif
 
         do_assemble(head_len, h, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);

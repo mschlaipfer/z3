@@ -1033,7 +1033,11 @@ namespace datalog {
     }
     */
     void compiler::add_unbound_columns_for_negation(rule* r, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr,
-        int2ints & var_indexes, bool & dealloc, execution_context & ctx, instruction_block & acc) {
+      int2ints & var_indexes,
+      #if 0
+      int_set & apply_now,
+      #endif
+      bool & dealloc, execution_context & ctx, instruction_block & acc) {
         uint_set pos_vars;
         u_map<expr*> neg_vars;
         ast_manager& m = m_context.get_manager();
@@ -1046,6 +1050,10 @@ namespace datalog {
 
         // populate negative variables:
         for (unsigned i = pt_len; i < ut_len; ++i) {
+        #if 0
+            if (!apply_now.contains(i))
+                continue;
+        #endif
             app * neg_tail = r->get_tail(i);
             unsigned neg_len = neg_tail->get_num_args();
             for (unsigned j = 0; j < neg_len; ++j) {
