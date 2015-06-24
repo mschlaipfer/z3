@@ -1347,9 +1347,9 @@ namespace datalog {
         return alloc(instr_assert_signature, s, tgt);
     }
 
-//#define INTERPRETED_FIRST
+#define INTERPRETED_FIRST
+#define NEGATION_FIRST
 //#define FILTER_AND_PROJECT
-//#define NEGATION_FIRST
     extern compiler * g_compiler;
     class instr_exec : public instruction {
       rule * r;
@@ -1411,7 +1411,7 @@ namespace datalog {
       }
 #endif
 
-      void make_negation_list(func_decl * head_pred, const unsigned pt_len, const unsigned ut_len,
+      void make_negation_list(func_decl * head_pred, unsigned pt_len, unsigned ut_len,
         const ptr_vector<variable_intersection> &intersections, const unsigned_vector &apply_now,
         expr_ref_vector & res_expr, reg_idx & res_reg, bool & dealloc, execution_context & ctx) {
 
@@ -1456,7 +1456,7 @@ namespace datalog {
       }
 
 
-      void make_negation(func_decl * head_pred, const unsigned pt_len, const unsigned ut_len,
+      void make_negation(func_decl * head_pred, unsigned pt_len, unsigned ut_len,
         expr_ref_vector & res_expr, reg_idx & res_reg, bool & dealloc, execution_context & ctx) {
 
         // add at least one column for the negative filter
@@ -1502,7 +1502,7 @@ namespace datalog {
       }
 
 
-      void do_negation(const unsigned pt_len, const unsigned ut_len, const unsigned ft_len,
+      void do_negation(unsigned pt_len, unsigned ut_len, unsigned ft_len,
         func_decl * head_pred, vector<int2ints> & var_indexes, bool &dealloc, ast_manager & m, int_set & neg_preds_done,
         vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
 
@@ -1512,8 +1512,9 @@ namespace datalog {
         if (res_preds.empty()) {
           expr_ref_vector res_expr(m);
           reg_idx res_reg = execution_context::void_register;
-          dealloc = false; // TODO ? that's how it goes in original case
           var_indexes.push_back(int2ints());
+          dealloc = false; // TODO ? that's how it goes in original case
+
           g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[0], dealloc, ctx, acc);
           make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
           res_preds.push_back(res_expr);
@@ -1618,7 +1619,7 @@ namespace datalog {
         acc.push_back(instruction::mk_filter_interpreted(res_reg, app_renamed));
       }
 
-      void do_filter(const unsigned ut_len, const unsigned ft_len,
+      void do_filter(unsigned ut_len, unsigned ft_len,
         func_decl * head_pred, vector<int2ints> & var_indexes, bool &dealloc, ast_manager & m,
         vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
 
@@ -1631,137 +1632,53 @@ namespace datalog {
         SASSERT(!res_preds.empty());
 #endif
         if (res_preds.empty()) {
-          // add unbounded columns for interpreted filter
           if (!interpreted_tail.empty()) {
             expr_ref_vector res_expr(m);
             reg_idx res_reg = execution_context::void_register;
-            dealloc = false; // TODO ? that's how it goes in original case
             var_indexes.push_back(int2ints());
+            dealloc = false; // TODO ? that's how it goes in original case
 
             make_filter(res_expr, interpreted_tail, head_pred, var_indexes[0], res_reg, dealloc, m, ctx);
 
             res_preds.push_back(res_expr);
             res_regs.push_back(res_reg);
+            dealloc = true;
           }
-        } else {
-          unsigned i = 0;
-          for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
-            it != end; ++it, ++i) {
+        }
+        else {
+          if (!interpreted_tail.empty()) {
+            unsigned i = 0;
+            for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
+              it != end; ++it, ++i) {
+                expr_ref_vector &res_expr = *it;
+                reg_idx &res_reg = res_regs[i];
 
-            if (!interpreted_tail.empty()) {
-              expr_ref_vector &res_expr = *it;
-              reg_idx &res_reg = res_regs[i];
+                make_filter(res_expr, interpreted_tail, head_pred, var_indexes[i], res_reg, dealloc, m, ctx);
 
-              make_filter(res_expr, interpreted_tail, head_pred, var_indexes[i], res_reg, dealloc, m, ctx);
-
-              dealloc = true;
+                dealloc = true;
             }
           }
         }
       }
-
-    public:
-      instr_exec(rule * r, reg_idx head_reg, const reg_idx * regs,
-        reg_idx delta_reg, bool use_widening)
-        : r(r), head_reg(head_reg), delta_reg(delta_reg), use_widening(use_widening) {
-        for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
-          tail_regs.push_back(regs[i]);
-        }
-      }
-
-      virtual bool perform(execution_context & ctx) {
-
-        TRACE("dl", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
-        // caching
-        if (acc.num_instructions() != 0) {
-          //acc.reset(); // recomputing every time
-          TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
-          acc.perform(ctx);
-          return true;
-        }
-        ast_manager & m = g_compiler->m_context.get_manager();
-        g_compiler->m_instruction_observer.start_rule(r);
-
-        const app * h = r->get_head();
-        unsigned head_len = h->get_num_args();
-        func_decl * head_pred = h->get_decl();
-
-        const unsigned pt_len = r->get_positive_tail_size();
-        const unsigned ut_len = r->get_uninterpreted_tail_size();
-        const unsigned ft_len = r->get_tail_size(); // full tail
+      
+      void do_join_project(bool filter_before, bool negation_before, unsigned pt_len, 
+        func_decl * head_pred, vector<int2ints> & var_indexes,
+        bool &dealloc, ast_manager & m, vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs,
+        execution_context & ctx) {
+        // used for computing whether col equality needs to be established
+        unsigned_vector belongs_to;
+        unsigned_vector offsets;
 
         reg_idx single_res;
         expr_ref_vector single_res_expr(m);
         int2ints single_var_indexes;
 
-        // used for computing whether col equality needs to be established
-        unsigned_vector belongs_to;
-        unsigned_vector offsets;
-
-        // whether to dealloc the previous result
-        bool dealloc = true;
-
-#ifdef INTERPRETED_FIRST
-        bool filter_before = true;
-#else
-        bool filter_before = false;
-#endif
-#ifdef NEGATION_FIRST
-        bool negation_before = true;
-#else
-        bool negation_before = false;
-#endif
-
-        // using expr_ref_vector instead of app* for updating tail predicates
-        vector<expr_ref_vector> pos_tail_preds;
-        svector<reg_idx>        pos_tail_regs;
-        vector<int2ints>        pos_tail_var_indexes;
-        // set up modifiable predicates / tmp registers / var_indexes
-        for (unsigned i = 0; i < pt_len; ++i) {
-          SASSERT(g_compiler->m_reg_signatures[tail_regs[i]].size() == r->get_tail(i)->get_num_args());
-          expr_ref_vector res_expr = expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args());
-          pos_tail_preds.push_back(res_expr);
-
-#ifdef INTERPRETED_FIRST // TODO does negation update in-place?
-          if (pt_len == 1 && ft_len == 1) { // no modification to predicate, so no need to clone
-#endif
-            pos_tail_regs.push_back(tail_regs[i]);
-#ifdef INTERPRETED_FIRST
-          }
-          else {
-            reg_idx res_reg; // create "local" register to match "local" expr
-            g_compiler->make_clone(tail_regs[i], res_reg, acc);
-            pos_tail_regs.push_back(res_reg); 
-          }
-#endif
-
-          int2ints var_indexes;
-#if defined INTERPRETED_FIRST || defined NEGATION_FIRST
-          compute_var_indexes(res_expr, var_indexes);
-#endif
-          pos_tail_var_indexes.push_back(var_indexes);
-        }
-        
-#ifdef INTERPRETED_FIRST
-        do_filter(ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
-#endif
-
-#ifdef NEGATION_FIRST
-        do_negation(pt_len, ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
-#endif
-
-        /***************************************************************************
-        *
-        * do_join_project start
-        *
-        /**************************************************************************/
-
-        g_compiler->compile_join_project(r, pos_tail_preds, pos_tail_regs, m, pt_len,
+        g_compiler->compile_join_project(r, res_preds, res_regs, m, pt_len,
           belongs_to, single_res, single_res_expr, filter_before, negation_before, dealloc, acc);
 
-        pos_tail_preds.reset();
-        pos_tail_regs.reset();
-        pos_tail_var_indexes.reset();
+        res_preds.reset();
+        res_regs.reset();
+        var_indexes.reset();
 
         {
           //enforce equality to constants
@@ -1830,98 +1747,15 @@ namespace datalog {
           dealloc = true;
         }
 
-        pos_tail_preds.push_back(single_res_expr);
-        pos_tail_regs.push_back(single_res);
-        pos_tail_var_indexes.push_back(single_var_indexes);
+        res_preds.push_back(single_res_expr);
+        res_regs.push_back(single_res);
+        var_indexes.push_back(single_var_indexes);
+      }
 
-        /***************************************************************************
-        *
-        * do_join_project end
-        *
-        /**************************************************************************/
-
-
-
-#ifndef INTERPRETED_FIRST
-        do_filter(ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
-#endif
-
-#ifndef NEGATION_FIRST
-        do_negation(pt_len, ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
-#endif
-
-#if 0
-        // this version is potentially better for non-symbolic tables,
-        // since it constraints each unbound column at a time (reducing the
-        // size of intermediate results).
-        unsigned ft_len = r->get_tail_size(); //full tail
-        for (unsigned tail_index = ut_len; tail_index<ft_len; tail_index++) {
-          app * t = r->get_tail(tail_index);
-          m_free_vars(t);
-
-          if (m_free_vars.empty()) {
-            expr_ref simplified(m);
-            m_context.get_rewriter()(t, simplified);
-            if (m.is_true(simplified)) {
-              //this tail element is always true
-              continue;
-            }
-            //the tail of this rule is never satisfied
-            SASSERT(m.is_false(simplified));
-            goto finish;
-          }
-
-          //determine binding size
-
-          unsigned max_var = m_free_vars.size();
-          while (max_var > 0 && !m_free_vars[max_var - 1]) --max_var;
-
-          //create binding
-          expr_ref_vector binding(m);
-          binding.resize(max_var);
-
-          for (unsigned v = 0; v < max_var; ++v) {
-            if (!m_free_vars[v]) {
-              continue;
-            }
-            int2ints::entry * e = var_indexes.find_core(v);
-            if (!e) {
-              //we have an unbound variable, so we add an unbound column for it
-              relation_sort unbound_sort = m_free_vars[v];
-
-              reg_idx new_reg;
-              TRACE("dl", tout << mk_pp(head_pred, m_context.get_manager()) << "\n";);
-              bool new_dealloc;
-              make_add_unbound_column(r, 0, head_pred, filtered_res, unbound_sort, new_reg, new_dealloc, acc);
-
-              if (dealloc)
-                make_dealloc_non_void(filtered_res, acc);
-              dealloc = new_dealloc;
-              filtered_res = new_reg;                // here filtered_res value gets changed !!
-
-              unsigned unbound_column_index = single_res_expr.size();
-              single_res_expr.push_back(m.mk_var(v, unbound_sort));
-
-              e = var_indexes.insert_if_not_there2(v, unsigned_vector());
-              e->get_data().m_value.push_back(unbound_column_index);
-            }
-            unsigned src_col = e->get_data().m_value.back();
-            relation_sort var_sort = m_reg_signatures[filtered_res][src_col];
-            binding[max_var - v] = m.mk_var(src_col, var_sort);
-          }
-
-
-          expr_ref renamed(m);
-          m_context.get_var_subst()(t, binding.size(), binding.c_ptr(), renamed);
-          app_ref app_renamed(to_app(renamed), m);
-          if (!dealloc)
-            make_clone(filtered_res, filtered_res, acc);
-          acc.push_back(instruction::mk_filter_interpreted(filtered_res, app_renamed));
-          ///*acc.push_back*/(instruction::mk_filter_interpreted(filtered_res, app_renamed)->perform(g_compiler->m_ectx));
-          dealloc = true;
-        }
-#endif
-
+      void do_assemble(unsigned head_len, const app * h, func_decl * head_pred,
+        const vector<int2ints> & pos_tail_var_indexes, bool dealloc, ast_manager & m,
+        const vector<expr_ref_vector> & pos_tail_preds, const svector<reg_idx> &pos_tail_regs,
+        execution_context & ctx) {
         SASSERT(pos_tail_preds.size() == 1);
         SASSERT(pos_tail_regs.size() == 1);
         SASSERT(pos_tail_var_indexes.size() == 1);
@@ -1975,6 +1809,101 @@ namespace datalog {
           if (dealloc)
             g_compiler->make_dealloc_non_void(new_head_reg, acc);
         }
+      }
+
+    public:
+      instr_exec(rule * r, reg_idx head_reg, const reg_idx * regs,
+        reg_idx delta_reg, bool use_widening)
+        : r(r), head_reg(head_reg), delta_reg(delta_reg), use_widening(use_widening) {
+        for (unsigned i = 0; i < r->get_positive_tail_size(); ++i) {
+          tail_regs.push_back(regs[i]);
+        }
+      }
+
+      virtual bool perform(execution_context & ctx) {
+
+        TRACE("dl", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
+        // caching
+        if (acc.num_instructions() != 0) {
+          //acc.reset(); // recomputing every time
+          TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
+          acc.perform(ctx);
+          return true;
+        }
+        ast_manager & m = g_compiler->m_context.get_manager();
+        g_compiler->m_instruction_observer.start_rule(r);
+
+        const app * h = r->get_head();
+        unsigned head_len = h->get_num_args();
+        func_decl * head_pred = h->get_decl();
+
+        const unsigned pt_len = r->get_positive_tail_size();
+        const unsigned ut_len = r->get_uninterpreted_tail_size();
+        const unsigned ft_len = r->get_tail_size(); // full tail
+
+        // whether to dealloc the previous result
+        bool dealloc = true;
+
+#ifdef INTERPRETED_FIRST
+        bool filter_before = true;
+#else
+        bool filter_before = false;
+#endif
+#ifdef NEGATION_FIRST
+        bool negation_before = true;
+#else
+        bool negation_before = false;
+#endif
+
+        // using expr_ref_vector instead of app* for updating tail predicates
+        vector<expr_ref_vector> pos_tail_preds;
+        svector<reg_idx>        pos_tail_regs;
+        vector<int2ints>        pos_tail_var_indexes;
+        // set up modifiable predicates / tmp registers / var_indexes
+        for (unsigned i = 0; i < pt_len; ++i) {
+          SASSERT(g_compiler->m_reg_signatures[tail_regs[i]].size() == r->get_tail(i)->get_num_args());
+          expr_ref_vector res_expr = expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args());
+          pos_tail_preds.push_back(res_expr);
+
+#ifdef INTERPRETED_FIRST // TODO does negation update in-place?
+          if (pt_len == ft_len) { // no modification to predicate, so no need to clone
+#endif
+            pos_tail_regs.push_back(tail_regs[i]);
+#ifdef INTERPRETED_FIRST
+          }
+          else {
+            reg_idx res_reg; // create "local" register to match "local" expr
+            g_compiler->make_clone(tail_regs[i], res_reg, acc);
+            pos_tail_regs.push_back(res_reg); 
+          }
+#endif
+
+          int2ints var_indexes;
+#if defined INTERPRETED_FIRST || defined NEGATION_FIRST
+          compute_var_indexes(res_expr, var_indexes);
+#endif
+          pos_tail_var_indexes.push_back(var_indexes);
+        }
+
+#ifdef NEGATION_FIRST
+        do_negation(pt_len, ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+#endif
+
+#ifdef INTERPRETED_FIRST
+        do_filter(ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
+#endif
+
+        do_join_project(filter_before, negation_before, pt_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
+
+#ifndef NEGATION_FIRST
+        do_negation(pt_len, ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, int_set(), pos_tail_preds, pos_tail_regs, ctx);
+#endif
+
+#ifndef INTERPRETED_FIRST
+        do_filter(ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
+#endif
+
+        do_assemble(head_len, h, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 
         //    finish:
         g_compiler->m_instruction_observer.finish_rule();

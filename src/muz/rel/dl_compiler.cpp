@@ -663,7 +663,8 @@ namespace datalog {
             single_res_expr.push_back(pos_tail_preds[0].get(i));
           }
         }
-        dealloc = false;
+        if (!filter_before && !negation_before)
+          dealloc = false;
       }
     }
     /*
