@@ -1823,13 +1823,14 @@ namespace datalog {
       virtual bool perform(execution_context & ctx) {
 
         TRACE("dl", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
+        TRACE("dl_stats", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
         // caching
-        if (acc.num_instructions() != 0) {
+        //if (acc.num_instructions() != 0) {
           //acc.reset(); // recomputing every time
-          TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
-          acc.perform(ctx);
-          return true;
-        }
+        //  TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
+        //  acc.perform(ctx);
+        //  return true;
+        //}
         ast_manager & m = g_compiler->m_context.get_manager();
         g_compiler->m_instruction_observer.start_rule(r);
 
@@ -1869,6 +1870,8 @@ namespace datalog {
           if (pt_len == ft_len) { // no modification to predicate, so no need to clone
 #endif
             pos_tail_regs.push_back(tail_regs[i]);
+            TRACE("dl_stats", if(pt_len > 1) {tout << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";});
+            
 #ifdef INTERPRETED_FIRST
           }
           else {
