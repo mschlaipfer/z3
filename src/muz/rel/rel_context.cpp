@@ -171,7 +171,7 @@ namespace datalog {
             ::stopwatch sw;
             sw.start();
             // TODO remove global variable
-            g_compiler = new compiler(m_context, m_context.get_rules(), m_code, m_ectx);
+            g_compiler = new compiler(m_context, m_context.get_rules(), m_code);
             g_compiler->do_compilation(m_code, termination_code);
 
             bool timeout_after_this_round = time_limit && (restart_time==0 || remaining_time_limit<=restart_time);

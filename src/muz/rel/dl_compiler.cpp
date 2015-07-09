@@ -54,14 +54,14 @@ namespace datalog {
 
     void compiler::make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, 
       const vector<variable_intersection> & vars, 
-      reg_idx & result, bool reuse_t1, instruction_block & acc) {
+      reg_idx & result, bool reuse, instruction_block & acc) {
       result = tail_regs[0];
       for (unsigned i = 1; i < pt_len; ++i) {
         reg_idx join_reg2 = tail_regs[i];
         relation_signature res_sig;
         relation_signature::from_join(m_reg_signatures[result], m_reg_signatures[join_reg2],
           vars[i - 1].size(), vars[i - 1].get_cols1(), vars[i - 1].get_cols2(), res_sig); // cols not used
-        result = get_register(res_sig, reuse_t1, NULL); // TODO NULL
+        result = get_register(res_sig, reuse, tail_regs[0]);
       }
       acc.push_back(instruction::mk_multiary_join(tail_regs, pt_len, vars, result));
       ///*acc.push_back*/(instruction::mk_multiary_join(tail_regs, pt_len, vars, result)->perform(m_ectx));
@@ -70,7 +70,7 @@ namespace datalog {
     void compiler::make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
       const vector<variable_intersection> & vars, 
       const vector<unsigned_vector> & removed_cols,
-      reg_idx & result, bool reuse_t1, instruction_block & acc) {
+      reg_idx & result, bool reuse, instruction_block & acc) {
       result = tail_regs[0];
       for (unsigned i = 1; i < pt_len; ++i) {
         reg_idx join_reg2 = tail_regs[i];
@@ -80,7 +80,7 @@ namespace datalog {
         relation_signature res_sig;
         relation_signature::from_project(aux_sig, removed_cols[i - 1].size(), removed_cols[i - 1].c_ptr(),
           res_sig);
-        result = get_register(res_sig, reuse_t1, NULL); // TODO NULL
+        result = get_register(res_sig, reuse, tail_regs[0]);
       }
       acc.push_back(instruction::mk_multiary_join_project(tail_regs, pt_len, vars, removed_cols, result));
       ///*acc.push_back*/(instruction::mk_multiary_join_project(tail_regs, pt_len, vars, removed_cols, result)->perform(m_ectx));

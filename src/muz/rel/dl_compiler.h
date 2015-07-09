@@ -120,8 +120,6 @@ namespace datalog {
         instruction_observer              m_instruction_observer;
         expr_free_vars                    m_free_vars;
 
-        // TODO
-        execution_context m_ectx;
         // for cleaning up insructions that are executed right away.
         instruction_block instruction_bin;
 
@@ -279,11 +277,10 @@ namespace datalog {
 
         void reset();
 
-        explicit compiler(context & ctx, rule_set const & rules, instruction_block & top_level_code, execution_context & ectx)
+        explicit compiler(context & ctx, rule_set const & rules, instruction_block & top_level_code)
             : m_context(ctx), 
             m_rule_set(rules),
             m_top_level_code(top_level_code),
-            m_ectx(ectx),
             m_instruction_observer(*this) {}
         
         /**
@@ -297,8 +294,8 @@ namespace datalog {
     // TODO public:
 
         static void compile(context & ctx, rule_set const & rules, instruction_block & execution_code, 
-                instruction_block & termination_code, execution_context &ectx) {
-            compiler(ctx, rules, execution_code, ectx).do_compilation(execution_code, termination_code);
+                instruction_block & termination_code) {
+            compiler(ctx, rules, execution_code).do_compilation(execution_code, termination_code);
         }
 
     };
