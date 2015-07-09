@@ -250,7 +250,8 @@ namespace datalog {
         typedef obj_map<func_decl, reg_idx> pred2idx;
         typedef unsigned_vector var_vector;
         typedef ptr_vector<func_decl> func_decl_vector;
-
+        typedef obj_map<expr, unsigned_vector> expr2idx;
+        typedef std::pair<unsigned, unsigned_vector> int2ints_pair;
 
         virtual ~instruction();
 
@@ -321,6 +322,7 @@ namespace datalog {
 
         static instruction * mk_exec(rule * r, reg_idx head_reg, const reg_idx * tail_regs,
           reg_idx delta_reg, bool use_widening);
+
 
         void collect_statistics(statistics& st) const;
 
