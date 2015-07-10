@@ -1357,7 +1357,7 @@ namespace datalog {
       instruction_block acc;
     private:
 
-      void apply_negative_predicate(expr_ref_vector & pos_expr, unsigned & pos_reg, unsigned neg_index, bool & dealloc, execution_context & ctx) {
+      void apply_negative_predicate(const expr_ref_vector & pos_expr, unsigned & pos_reg, unsigned neg_index, bool & dealloc, execution_context & ctx) {
         //enforce negative predicates
         app * neg_app = r->get_tail(neg_index);
         func_decl * neg_pred = neg_app->get_decl();
@@ -1801,41 +1801,25 @@ namespace datalog {
         );
       }
 
-      /*
-            void pick_tail_indexes(unsigned pt_len, unsigned start_index, unsigned end_index,
-        const int2ints & var_occurrences, 
+      /*void pick_tail_indexes_new(unsigned start_index, unsigned end_index,
+        const int2ints & var_occurrences,
         int2ints &picks) {
         for (unsigned tail_index = start_index; tail_index < end_index; ++tail_index) {
           unsigned_vector tail_index_picks;
           app * pred = r->get_tail(tail_index);
-          // only for unary predicates
-          const unsigned max_supported_pred_size = 1; // how many joins to do first-1
-          unsigned num_vars = 0;
+          int_set picked;
           for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
             expr * e = r->get_tail(tail_index)->get_arg(arg_index);
             if (is_var(e)) {
-              num_vars++;
-              if (num_vars > 1) {
-                break;
-              }
-            }
-          }
-          if (num_vars == 0) {
-            for (unsigned pos_index = 0; pos_index < pt_len; ++pos_index) {
-              tail_index_picks.push_back(pos_index);
-            }
-          }
-          else if (num_vars == 1) {
-            for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
-              expr * e = r->get_tail(tail_index)->get_arg(arg_index);
-              if (is_var(e)) {
-                unsigned v = to_var(e)->get_idx();
-                int2ints::entry *entry = var_occurrences.find_core(v);
-                if (entry) {
-                  unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
-                  for (; vo_it != vo_end; ++vo_it) {
-                    tail_index_picks.push_back(*vo_it);
-                  }
+              unsigned v = to_var(e)->get_idx();
+              int2ints::entry *entry = var_occurrences.find_core(v);
+              if (entry) {
+                unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
+                for (; vo_it != vo_end; ++vo_it) {
+                  unsigned pos_index = *vo_it;
+                  if (picked.contains(pos_index))
+                  tail_index_picks.push_back(pos_index);
+                  picked.insert_if_not_there(pos_index);
                 }
               }
             }
@@ -1850,21 +1834,7 @@ namespace datalog {
             );
           }
         }
-      }
-
-
-      void make_query_plan(unsigned pt_len, unsigned ut_len, unsigned ft_len, ast_manager & m,
-        int2ints & picks) {
-        int2ints var_occurrences;
-        compute_var_occurrences(pt_len, var_occurrences);
-        TRACE("dl_query_plan", tout << "negated\n";);
-        pick_tail_indexes(pt_len, pt_len, ut_len, var_occurrences, picks); // neg
-        //pick_tail_indexes(pt_len, ut_len, ft_len, var_occurrences, picks); // interpreted
-
-      }
-      
-      */
-
+      }*/
 
       void pick_tail_indexes(unsigned start_index, unsigned end_index,
         const int2ints & var_occurrences, 
@@ -1880,6 +1850,7 @@ namespace datalog {
             if (is_var(e)) {
               num_vars++;
               if (num_vars > max_supported_pred_size) { // greedy computation and reset if we don't support the size
+                TRACE("dl_query_plan", tout << "reset picks";);
                 tail_index_picks.reset();
                 break;
               }
@@ -1907,12 +1878,45 @@ namespace datalog {
 
 
       void make_query_plan(unsigned pt_len, unsigned ut_len, unsigned ft_len, ast_manager & m,
-        int2ints & picks) {
+        int2ints & neg_picks, int2ints & interpreted_picks) {
         int2ints var_occurrences;
         compute_var_occurrences(pt_len, var_occurrences);
         TRACE("dl_query_plan", tout << "negated\n";);
-        pick_tail_indexes(pt_len, ut_len, var_occurrences, picks);
-        pick_tail_indexes(ut_len, ft_len, var_occurrences, picks);
+        pick_tail_indexes(pt_len, ut_len, var_occurrences, neg_picks);
+        TRACE("dl_query_plan", tout << "interpreted\n";);
+        pick_tail_indexes(ut_len, ft_len, var_occurrences, interpreted_picks);
+      }
+
+      void reorder_negations(unsigned pt_len, unsigned ut_len, const int2ints & neg_picks, 
+        const vector<expr_ref_vector> & pos_tail_preds, svector<reg_idx> & pos_tail_regs, 
+        unsigned_vector & remaining_negated_tail, int_set & tmp_regs,
+        ast_manager & m, bool & dealloc, execution_context & ctx) {
+        //#ifdef Z3DEBUG
+        unsigned neg_applications = 0;
+        //#endif
+        for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
+          int2ints::entry *entry = neg_picks.find_core(neg_index);
+          if (entry) {
+            unsigned_vector apply_to = entry->get_data().m_value;
+            unsigned_vector::iterator at_it = apply_to.begin(), at_end = apply_to.end();
+            for (; at_it != at_end; ++at_it) {
+              unsigned pos_index = *at_it;
+              TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
+              reg_idx & pos_reg = pos_tail_regs[pos_index];
+              g_compiler->make_clone(pos_reg, pos_reg, acc);
+              tmp_regs.insert(pos_reg);
+              apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
+            }
+            //#ifdef Z3DEBUG
+            neg_applications++;
+            //#endif
+          }
+          else {
+            remaining_negated_tail.push_back(neg_index);
+          }
+        }
+        TRACE("dl_query_plan", tout << "neg applications: " << neg_applications << "\n";);
+        SASSERT(neg_applications + remaining_negated_tail.size() == ut_len - pt_len);
       }
 
     public:
@@ -1976,18 +1980,20 @@ namespace datalog {
         }
 
         // if interpreted_tail_preds.size() + neg_tail_preds.size() > 0 && pos_tail_preds.size() > 1
-        // TODO unsigned_vector remaining_interpreted_tail;
         unsigned_vector remaining_negated_tail;
+        unsigned_vector remaining_interpreted_tail;
         int_set tmp_regs;
         if (!empty && pt_len > 1) {
-          int2ints picks;
-          make_query_plan(pt_len, ut_len, ft_len, m, picks);
+          int2ints neg_picks, interpreted_picks;
+          make_query_plan(pt_len, ut_len, ft_len, m, neg_picks, interpreted_picks);
 
-#ifdef Z3DEBUG
-          unsigned applications = 0;
-#endif
-          for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
-            int2ints::entry *entry = picks.find_core(neg_index);
+          reorder_negations(pt_len, ut_len, neg_picks, pos_tail_preds, pos_tail_regs, remaining_negated_tail, tmp_regs, m, dealloc, ctx);
+          
+//#ifdef Z3DEBUG
+          unsigned interpreted_applications = 0;
+//#endif
+          for (unsigned interpreted_index = ut_len; interpreted_index < ft_len; ++interpreted_index) {
+            int2ints::entry *entry = interpreted_picks.find_core(interpreted_index);
             if (entry) {
               unsigned_vector apply_to = entry->get_data().m_value;
               unsigned_vector::iterator at_it = apply_to.begin(), at_end = apply_to.end();
@@ -1995,25 +2001,34 @@ namespace datalog {
                 unsigned pos_index = *at_it;
                 TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
                 reg_idx & pos_reg = pos_tail_regs[pos_index];
-                g_compiler->make_clone(pos_reg, pos_reg, acc);
-                tmp_regs.insert(pos_reg);
-                apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
+
+                //TODO
+                //g_compiler->make_clone(pos_reg, pos_reg, acc);
+                //tmp_regs.insert(pos_reg);
+                //apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
               }
-#ifdef Z3DEBUG
-              applications++;
-#endif
+//#ifdef Z3DEBUG
+              interpreted_applications++;
+//#endif
             }
             else {
-              remaining_negated_tail.push_back(neg_index);
+              remaining_interpreted_tail.push_back(interpreted_index);
             }
           }
-          SASSERT(applications + remaining_negated_tail.size() == ut_len - pt_len);
+          TRACE("dl_query_plan", tout << "interpreted applications: " << interpreted_applications << "\n";);
+          SASSERT(interpreted_applications + remaining_interpreted_tail.size() == ft_len - ut_len);
+
         }
         else {
           TRACE("dl_query_plan", tout << "EMPTY OR PT_LEN == 1\n";);
           // in this case nothing is applied
           for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
             remaining_negated_tail.push_back(neg_index);
+          }
+          SASSERT(remaining_negated_tail.size() == ut_len - pt_len);
+
+          for (unsigned interpreted_index = ut_len; interpreted_index < ft_len; ++interpreted_index) {
+            remaining_interpreted_tail.push_back(interpreted_index);
           }
           SASSERT(remaining_negated_tail.size() == ut_len - pt_len);
         }
@@ -2031,6 +2046,7 @@ namespace datalog {
 
         do_remaining_negation(remaining_negated_tail, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 
+        // TODO do_remaining_filter
         do_filter(ut_len, ft_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 
 
