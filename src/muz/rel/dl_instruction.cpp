@@ -1900,6 +1900,41 @@ namespace datalog {
         SASSERT(neg_applications + remaining_negated_tail.size() == ut_len - pt_len);
       }
 
+      void reorder_interpreted(unsigned ut_len, unsigned ft_len, const int2ints & interpreted_picks,
+        const vector<expr_ref_vector> & pos_tail_preds, svector<reg_idx> & pos_tail_regs,
+        unsigned_vector & remaining_interpreted_tail, int_set & tmp_regs,
+        ast_manager & m, bool & dealloc, execution_context & ctx) {
+        //#ifdef Z3DEBUG
+        unsigned interpreted_applications = 0;
+        //#endif
+        for (unsigned interpreted_index = ut_len; interpreted_index < ft_len; ++interpreted_index) {
+          int2ints::entry *entry = interpreted_picks.find_core(interpreted_index);
+          if (entry) {
+            unsigned_vector apply_to = entry->get_data().m_value;
+            unsigned_vector::iterator at_it = apply_to.begin(), at_end = apply_to.end();
+            for (; at_it != at_end; ++at_it) {
+              unsigned pos_index = *at_it;
+              TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
+              reg_idx & pos_reg = pos_tail_regs[pos_index];
+
+              //TODO
+              //g_compiler->make_clone(pos_reg, pos_reg, acc);
+              //tmp_regs.insert(pos_reg);
+              //apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
+            }
+            //#ifdef Z3DEBUG
+            interpreted_applications++;
+            //#endif
+          }
+          else {
+            remaining_interpreted_tail.push_back(interpreted_index);
+          }
+
+        }
+        TRACE("dl_query_plan", tout << "interpreted applications: " << interpreted_applications << "\n";);
+        SASSERT(interpreted_applications + remaining_interpreted_tail.size() == ft_len - ut_len);
+      }
+
     public:
       instr_exec(rule * r, reg_idx head_reg, const reg_idx * regs,
         reg_idx delta_reg, bool use_widening)
@@ -1960,49 +1995,21 @@ namespace datalog {
           }
         }
 
-        // if interpreted_tail_preds.size() + neg_tail_preds.size() > 0 && pos_tail_preds.size() > 1
         unsigned_vector remaining_negated_tail;
         unsigned_vector remaining_interpreted_tail;
         int_set tmp_regs;
-        if (!empty && pt_len > 1) {
+        if (!empty && pt_len > 1 && ft_len - pt_len > 0) {
           int2ints neg_picks, interpreted_picks;
           make_query_plan(pt_len, ut_len, ft_len, m, neg_picks, interpreted_picks);
 
           reorder_negations(pt_len, ut_len, neg_picks, pos_tail_preds, pos_tail_regs, remaining_negated_tail, tmp_regs, m, dealloc, ctx);
-          
-//#ifdef Z3DEBUG
-          unsigned interpreted_applications = 0;
-//#endif
-          for (unsigned interpreted_index = ut_len; interpreted_index < ft_len; ++interpreted_index) {
-            int2ints::entry *entry = interpreted_picks.find_core(interpreted_index);
-            if (entry) {
-              unsigned_vector apply_to = entry->get_data().m_value;
-              unsigned_vector::iterator at_it = apply_to.begin(), at_end = apply_to.end();
-              for (; at_it != at_end; ++at_it) {
-                unsigned pos_index = *at_it;
-                TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
-                reg_idx & pos_reg = pos_tail_regs[pos_index];
 
-                //TODO
-                //g_compiler->make_clone(pos_reg, pos_reg, acc);
-                //tmp_regs.insert(pos_reg);
-                //apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
-              }
-//#ifdef Z3DEBUG
-              interpreted_applications++;
-//#endif
-            }
-            else {
-              remaining_interpreted_tail.push_back(interpreted_index);
-            }
-          }
-          TRACE("dl_query_plan", tout << "interpreted applications: " << interpreted_applications << "\n";);
-          SASSERT(interpreted_applications + remaining_interpreted_tail.size() == ft_len - ut_len);
-
+          // TODO
+          //reorder_interpreted(ut_len, ft_len, interpreted_picks, pos_tail_preds, pos_tail_regs, remaining_interpreted_tail, tmp_regs, m, dealloc, ctx);
         }
         else {
+          // No reordering befor joins
           TRACE("dl_query_plan", tout << "EMPTY OR PT_LEN == 1\n";);
-          // in this case nothing is applied
           for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
             remaining_negated_tail.push_back(neg_index);
           }
