@@ -1820,26 +1820,28 @@ namespace datalog {
               vars.push_back(to_var(e)->get_idx());
             }
           }
-
-          if (vars.size() == 1) {
+          unsigned num_vars = vars.size();
+          if (num_vars == 1) {
             int2ints::entry *entry = pt_var_occurrences.find_core(vars[0]);
             if (entry) {
               unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
               for (; vo_it != vo_end; ++vo_it) {
                 tail_index_picks.push_back(*vo_it);
+                TRACE("dl_query_plan", tout << "tail index with size 1\n";);
               }
             }
           }
-          else {
+          else if (num_vars > 1) {
             int2ints::entry *entry = pt_var_occurrences.find_core(vars[0]);
             if (entry) {
               unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
               for (; vo_it != vo_end; ++vo_it) {
                 variable_intersection intersect(m);
                 intersect.populate(pred, r->get_tail(*vo_it));
-                SASSERT(intersect.size() <= vars.size());
-                if (intersect.size() == vars.size()) {
+                SASSERT(intersect.size() <= num_vars);
+                if (intersect.size() == num_vars) {
                   tail_index_picks.push_back(*vo_it);
+                  TRACE("dl_query_plan", tout << "tail index with size " << num_vars << "\n";);
                 }
               }
             }
@@ -1872,9 +1874,9 @@ namespace datalog {
         const vector<expr_ref_vector> & pos_tail_preds, svector<reg_idx> & pos_tail_regs, 
         unsigned_vector & remaining_negated_tail, int_set & tmp_regs,
         ast_manager & m, bool & dealloc, execution_context & ctx) {
-        //#ifdef Z3DEBUG
+#ifdef Z3DEBUG
         unsigned neg_applications = 0;
-        //#endif
+#endif
         for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
           int2ints::entry *entry = neg_picks.find_core(neg_index);
           if (entry) {
@@ -1888,9 +1890,9 @@ namespace datalog {
               tmp_regs.insert(pos_reg);
               apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
             }
-            //#ifdef Z3DEBUG
+#ifdef Z3DEBUG
             neg_applications++;
-            //#endif
+#endif
           }
           else {
             remaining_negated_tail.push_back(neg_index);
@@ -1904,9 +1906,9 @@ namespace datalog {
         const vector<expr_ref_vector> & pos_tail_preds, svector<reg_idx> & pos_tail_regs,
         unsigned_vector & remaining_interpreted_tail, int_set & tmp_regs,
         ast_manager & m, bool & dealloc, execution_context & ctx) {
-        //#ifdef Z3DEBUG
+#ifdef Z3DEBUG
         unsigned interpreted_applications = 0;
-        //#endif
+#endif
         for (unsigned interpreted_index = ut_len; interpreted_index < ft_len; ++interpreted_index) {
           int2ints::entry *entry = interpreted_picks.find_core(interpreted_index);
           if (entry) {
@@ -1922,9 +1924,9 @@ namespace datalog {
               //tmp_regs.insert(pos_reg);
               //apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
             }
-            //#ifdef Z3DEBUG
+#ifdef Z3DEBUG
             interpreted_applications++;
-            //#endif
+#endif
           }
           else {
             remaining_interpreted_tail.push_back(interpreted_index);
