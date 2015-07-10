@@ -251,7 +251,6 @@ namespace datalog {
         typedef unsigned_vector var_vector;
         typedef ptr_vector<func_decl> func_decl_vector;
         typedef obj_map<expr, unsigned_vector> expr2idx;
-        typedef std::pair<unsigned, unsigned_vector> int2ints_pair;
 
         virtual ~instruction();
 

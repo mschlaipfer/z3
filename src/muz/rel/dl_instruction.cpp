@@ -1774,24 +1774,29 @@ namespace datalog {
         }
       }
 
-      // computes a map of variables to registers in whose accompanying predicate the variable appears
-      void compute_var_occurrences(unsigned pt_len, int2ints & var_occurrences) {
-        for (unsigned tail_index = 0; tail_index < pt_len; ++tail_index) {
-          app * pred = r->get_tail(tail_index);
+      // Compute a map of variables to pos tail indexes in whose accompanying predicate the variable appears
+      void compute_var_occurrences(unsigned pt_len,
+        int2ints & pt_var_occurrences) {
+        for (unsigned pos_index = 0; pos_index < pt_len; ++pos_index) {
+          app * pred = r->get_tail(pos_index);
           for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
-            expr * e = r->get_tail(tail_index)->get_arg(arg_index);
+            expr * e = r->get_tail(pos_index)->get_arg(arg_index);
             if (is_var(e)) {
               unsigned v = to_var(e)->get_idx();
-              int2ints::entry * entry = var_occurrences.find_core(v);
+              int2ints::entry * entry = pt_var_occurrences.find_core(v);
               if (!entry) {
-                entry = var_occurrences.insert_if_not_there2(v, unsigned_vector());
+                entry = pt_var_occurrences.insert_if_not_there2(v, unsigned_vector());
               }
-              entry->get_data().m_value.push_back(tail_index);
+              // Make sure that pos_index isn't inserted multiple times (e.g. f(x,x))
+              // FIXME O(n), but can't have map of int_set
+              if (!entry->get_data().m_value.contains(pos_index)) {
+                entry->get_data().m_value.push_back(pos_index);
+              }
             }
           }
         }
 
-        int2ints::iterator it = var_occurrences.begin(), end = var_occurrences.end();
+        int2ints::iterator it = pt_var_occurrences.begin(), end = pt_var_occurrences.end();
         TRACE("dl_query_plan",
           for (; it != end; ++it) {
             tout << it->m_key << ": ";
@@ -1801,64 +1806,39 @@ namespace datalog {
         );
       }
 
-      /*void pick_tail_indexes_new(unsigned start_index, unsigned end_index,
-        const int2ints & var_occurrences,
+      void pick_tail_indexes(unsigned start_index, unsigned end_index,
+        const int2ints & pt_var_occurrences,
+        ast_manager &m,
         int2ints &picks) {
         for (unsigned tail_index = start_index; tail_index < end_index; ++tail_index) {
           unsigned_vector tail_index_picks;
           app * pred = r->get_tail(tail_index);
-          int_set picked;
+          unsigned_vector vars;
           for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
             expr * e = r->get_tail(tail_index)->get_arg(arg_index);
             if (is_var(e)) {
-              unsigned v = to_var(e)->get_idx();
-              int2ints::entry *entry = var_occurrences.find_core(v);
-              if (entry) {
-                unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
-                for (; vo_it != vo_end; ++vo_it) {
-                  unsigned pos_index = *vo_it;
-                  if (picked.contains(pos_index))
-                  tail_index_picks.push_back(pos_index);
-                  picked.insert_if_not_there(pos_index);
-                }
-              }
+              vars.push_back(to_var(e)->get_idx());
             }
           }
 
-          if (!tail_index_picks.empty()) {
-            picks.insert(tail_index, tail_index_picks);
-            TRACE("dl_query_plan",
-              tout << "picked regs ";
-            print_container(tail_index_picks, tout);
-            tout << " for " << mk_pp(r->get_tail(tail_index), g_compiler->m_context.get_manager()) << "\n";
-            );
-          }
-        }
-      }*/
-
-      void pick_tail_indexes(unsigned start_index, unsigned end_index,
-        const int2ints & var_occurrences, 
-        int2ints &picks) {
-        for (unsigned tail_index = start_index; tail_index < end_index; ++tail_index) {
-          unsigned_vector tail_index_picks;
-          app * pred = r->get_tail(tail_index);
-          // only for unary predicates
-          const unsigned max_supported_pred_size = 1; // how many joins to do first-1
-          unsigned num_vars = 0;
-          for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
-            expr * e = r->get_tail(tail_index)->get_arg(arg_index);
-            if (is_var(e)) {
-              num_vars++;
-              if (num_vars > max_supported_pred_size) { // greedy computation and reset if we don't support the size
-                TRACE("dl_query_plan", tout << "reset picks";);
-                tail_index_picks.reset();
-                break;
+          if (vars.size() == 1) {
+            int2ints::entry *entry = pt_var_occurrences.find_core(vars[0]);
+            if (entry) {
+              unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
+              for (; vo_it != vo_end; ++vo_it) {
+                tail_index_picks.push_back(*vo_it);
               }
-              unsigned v = to_var(e)->get_idx();
-              int2ints::entry *entry = var_occurrences.find_core(v);
-              if (entry) {
-                unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
-                for (; vo_it != vo_end; ++vo_it) {
+            }
+          }
+          else {
+            int2ints::entry *entry = pt_var_occurrences.find_core(vars[0]);
+            if (entry) {
+              unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
+              for (; vo_it != vo_end; ++vo_it) {
+                variable_intersection intersect(m);
+                intersect.populate(pred, r->get_tail(*vo_it));
+                SASSERT(intersect.size() <= vars.size());
+                if (intersect.size() == vars.size()) {
                   tail_index_picks.push_back(*vo_it);
                 }
               }
@@ -1867,6 +1847,7 @@ namespace datalog {
 
           if (!tail_index_picks.empty()) {
             picks.insert(tail_index, tail_index_picks);
+
             TRACE("dl_query_plan",
               tout << "picked regs ";
             print_container(tail_index_picks, tout);
@@ -1879,12 +1860,12 @@ namespace datalog {
 
       void make_query_plan(unsigned pt_len, unsigned ut_len, unsigned ft_len, ast_manager & m,
         int2ints & neg_picks, int2ints & interpreted_picks) {
-        int2ints var_occurrences;
-        compute_var_occurrences(pt_len, var_occurrences);
+        int2ints pt_var_occurrences;
+        compute_var_occurrences(pt_len, pt_var_occurrences);
         TRACE("dl_query_plan", tout << "negated\n";);
-        pick_tail_indexes(pt_len, ut_len, var_occurrences, neg_picks);
+        pick_tail_indexes(pt_len, ut_len, pt_var_occurrences, m, neg_picks);
         TRACE("dl_query_plan", tout << "interpreted\n";);
-        pick_tail_indexes(ut_len, ft_len, var_occurrences, interpreted_picks);
+        pick_tail_indexes(ut_len, ft_len, pt_var_occurrences, m, interpreted_picks);
       }
 
       void reorder_negations(unsigned pt_len, unsigned ut_len, const int2ints & neg_picks, 
