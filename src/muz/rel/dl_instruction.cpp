@@ -271,7 +271,7 @@ namespace datalog {
         instr_clone_move(bool clone, reg_idx src, reg_idx tgt)
             : m_clone(clone), m_src(src), m_tgt(tgt) {}
         virtual bool perform(execution_context & ctx) {
-            if (ctx.reg(m_src)) log_verbose(ctx);            
+            log_verbose(ctx);            
             if (m_clone) {
                 ctx.set_reg(m_tgt, ctx.reg(m_src) ? ctx.reg(m_src)->clone() : 0);
             }
@@ -638,10 +638,10 @@ namespace datalog {
         instr_filter_interpreted(reg_idx reg, app_ref & condition)
             : m_reg(reg), m_cond(condition) {}
         virtual bool perform(execution_context & ctx) {
+            log_verbose(ctx);
             if (!ctx.reg(m_reg)) {
                 return true;
-            }
-            log_verbose(ctx);            
+            }           
             ++ctx.m_stats.m_filter;
 
             relation_mutator_fn * fn;
@@ -692,12 +692,12 @@ namespace datalog {
             : m_src(src), m_cond(condition), m_cols(col_cnt, removed_cols),
               m_res(result) {}
 
-        virtual bool perform(execution_context & ctx) {     
+        virtual bool perform(execution_context & ctx) {
+            log_verbose(ctx);
             if (!ctx.reg(m_src)) {
                 ctx.make_empty(m_res);
                 return true;
             }
-            log_verbose(ctx);
             ++ctx.m_stats.m_filter_interp_project;
 
             relation_transformer_fn * fn;
@@ -755,11 +755,11 @@ namespace datalog {
             : m_src(src), m_tgt(tgt), m_delta(delta), m_widen(widen) {}
         virtual bool perform(execution_context & ctx) {
             TRACE("dl", tout << "union " << m_src << " into " << m_tgt 
-                  << " " << ctx.reg(m_src) << " " << ctx.reg(m_tgt) << "\n";);
+              << " " << ctx.reg(m_src) << " " << ctx.reg(m_tgt) << "\n";);
+            log_verbose(ctx);
             if (!ctx.reg(m_src)) {
                 return true;
             }
-            log_verbose(ctx);
             ++ctx.m_stats.m_union;
             relation_base & r_src = *ctx.reg(m_src);
             if (!ctx.reg(m_tgt)) {
@@ -868,12 +868,12 @@ namespace datalog {
             reg_idx tgt) : m_projection(projection), m_src(src), 
             m_cols(col_cnt, cols), m_tgt(tgt) {}
         virtual bool perform(execution_context & ctx) {
+            log_verbose(ctx);
             if (!ctx.reg(m_src)) {
                 ctx.make_empty(m_tgt);
                 return true;
             }
-
-            log_verbose(ctx);            
+        
             ++ctx.m_stats.m_project_rename;
             relation_transformer_fn * fn;
             relation_base & r_src = *ctx.reg(m_src);
@@ -1125,11 +1125,11 @@ namespace datalog {
         }
 
         virtual bool perform(execution_context & ctx) {
+            log_verbose(ctx);
             if (!ctx.reg(m_src)) {
                 ctx.make_empty(m_result);
                 return true;
-            }
-            log_verbose(ctx);            
+            }           
             ++ctx.m_stats.m_select_equal_project;
             relation_transformer_fn * fn;
             relation_base & r = *ctx.reg(m_src);
@@ -1366,7 +1366,7 @@ namespace datalog {
         unsigned_vector t_cols(neg_intersection.size(), neg_intersection.get_cols1());
         unsigned_vector neg_cols(neg_intersection.size(), neg_intersection.get_cols2());
         TRACE("dl_query_plan", tout << "neg_app " << mk_pp(neg_app, g_compiler->m_context.get_manager()) << "\n";);
-        unsigned neg_len = neg_app->get_num_args();
+        /*unsigned neg_len = neg_app->get_num_args();
         for (unsigned i = 0; i < neg_len; i++) {
           expr * e = neg_app->get_arg(i);
           if (is_var(e)) {
@@ -1383,90 +1383,11 @@ namespace datalog {
           pos_expr.push_back(e);
         }
         SASSERT(t_cols.size() == neg_cols.size());
-
+        */
         reg_idx neg_reg = g_compiler->m_pred_regs.find(neg_pred);
-        if (!dealloc)
-          g_compiler->make_clone(pos_reg, pos_reg, acc);
         acc.push_back(instruction::mk_filter_by_negation(pos_reg, neg_reg, t_cols.size(),
           t_cols.c_ptr(), neg_cols.c_ptr()));
         dealloc = true;
-      }
-
-
-
-
-      void make_negation(func_decl * head_pred, unsigned pt_len, unsigned ut_len,
-        expr_ref_vector & res_expr, reg_idx & res_reg, bool & dealloc, execution_context & ctx) {
-
-        // add at least one column for the negative filter
-        // lengths in original rule (DON'T USE res_expr.size())
-        if (pt_len != ut_len && res_reg == execution_context::void_register) {
-          relation_signature empty_signature;
-          g_compiler->make_full_relation(head_pred, empty_signature, res_reg, ctx, acc);
-        }
-
-        //enforce negative predicates
-        for (unsigned j = pt_len; j < ut_len; j++) {
-          app * neg_tail = r->get_tail(j);
-          func_decl * neg_pred = neg_tail->get_decl();
-          variable_intersection neg_intersection(g_compiler->m_context.get_manager());
-          neg_intersection.populate(res_expr, neg_tail);
-          unsigned_vector t_cols(neg_intersection.size(), neg_intersection.get_cols1());
-          unsigned_vector neg_cols(neg_intersection.size(), neg_intersection.get_cols2());
-
-          unsigned neg_len = neg_tail->get_num_args();
-          for (unsigned i = 0; i < neg_len; i++) {
-            expr * e = neg_tail->get_arg(i);
-            if (is_var(e)) {
-              continue;
-            }
-            SASSERT(is_app(e));
-            relation_sort arg_sort;
-            g_compiler->m_context.get_rel_context()->get_rmanager().from_predicate(neg_pred, i, arg_sort);
-            g_compiler->make_add_constant_column(head_pred, res_reg, arg_sort, to_app(e), res_reg, dealloc, ctx, acc);
-
-            t_cols.push_back(res_expr.size());
-            neg_cols.push_back(i);
-            res_expr.push_back(e);
-          }
-          SASSERT(t_cols.size() == neg_cols.size());
-
-          reg_idx neg_reg = g_compiler->m_pred_regs.find(neg_pred);
-          if (!dealloc)
-            g_compiler->make_clone(res_reg, res_reg, acc);
-          acc.push_back(instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
-            t_cols.c_ptr(), neg_cols.c_ptr()));
-          dealloc = true;
-        }
-      }
-
-
-      void do_negation(unsigned pt_len, unsigned ut_len, unsigned ft_len,
-        func_decl * head_pred, vector<int2ints> & var_indexes, bool &dealloc, ast_manager & m,
-        vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
-
-        if (res_preds.empty()) {
-          SASSERT(false);
-          expr_ref_vector res_expr(m);
-          reg_idx res_reg = execution_context::void_register;
-          var_indexes.push_back(int2ints());
-          dealloc = false; // TODO ? that's how it goes in original case
-          
-          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[0], dealloc, ctx, acc);
-          make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
-          res_preds.push_back(res_expr);
-          res_regs.push_back(res_reg);
-        }
-        else {
-          unsigned i = 0;
-          for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
-            it != end; ++it, ++i) {
-            expr_ref_vector &res_expr = *it;
-            reg_idx &res_reg = res_regs[i];
-            g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[i], dealloc, ctx, acc);
-            make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
-          }
-        }
       }
 
       void make_remaining_negation(func_decl * head_pred, const unsigned_vector & remaining_neg_tail,
@@ -1880,10 +1801,74 @@ namespace datalog {
         );
       }
 
+      /*
+            void pick_tail_indexes(unsigned pt_len, unsigned start_index, unsigned end_index,
+        const int2ints & var_occurrences, 
+        int2ints &picks) {
+        for (unsigned tail_index = start_index; tail_index < end_index; ++tail_index) {
+          unsigned_vector tail_index_picks;
+          app * pred = r->get_tail(tail_index);
+          // only for unary predicates
+          const unsigned max_supported_pred_size = 1; // how many joins to do first-1
+          unsigned num_vars = 0;
+          for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
+            expr * e = r->get_tail(tail_index)->get_arg(arg_index);
+            if (is_var(e)) {
+              num_vars++;
+              if (num_vars > 1) {
+                break;
+              }
+            }
+          }
+          if (num_vars == 0) {
+            for (unsigned pos_index = 0; pos_index < pt_len; ++pos_index) {
+              tail_index_picks.push_back(pos_index);
+            }
+          }
+          else if (num_vars == 1) {
+            for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
+              expr * e = r->get_tail(tail_index)->get_arg(arg_index);
+              if (is_var(e)) {
+                unsigned v = to_var(e)->get_idx();
+                int2ints::entry *entry = var_occurrences.find_core(v);
+                if (entry) {
+                  unsigned_vector::iterator vo_it = entry->get_data().m_value.begin(), vo_end = entry->get_data().m_value.end();
+                  for (; vo_it != vo_end; ++vo_it) {
+                    tail_index_picks.push_back(*vo_it);
+                  }
+                }
+              }
+            }
+          }
+
+          if (!tail_index_picks.empty()) {
+            picks.insert(tail_index, tail_index_picks);
+            TRACE("dl_query_plan",
+              tout << "picked regs ";
+            print_container(tail_index_picks, tout);
+            tout << " for " << mk_pp(r->get_tail(tail_index), g_compiler->m_context.get_manager()) << "\n";
+            );
+          }
+        }
+      }
+
+
+      void make_query_plan(unsigned pt_len, unsigned ut_len, unsigned ft_len, ast_manager & m,
+        int2ints & picks) {
+        int2ints var_occurrences;
+        compute_var_occurrences(pt_len, var_occurrences);
+        TRACE("dl_query_plan", tout << "negated\n";);
+        pick_tail_indexes(pt_len, pt_len, ut_len, var_occurrences, picks); // neg
+        //pick_tail_indexes(pt_len, ut_len, ft_len, var_occurrences, picks); // interpreted
+
+      }
+      
+      */
+
+
       void pick_tail_indexes(unsigned start_index, unsigned end_index,
         const int2ints & var_occurrences, 
-        vector<int2ints_pair> &picks) {
-        // Try also with conjunction of interpreted tail preds
+        int2ints &picks) {
         for (unsigned tail_index = start_index; tail_index < end_index; ++tail_index) {
           unsigned_vector tail_index_picks;
           app * pred = r->get_tail(tail_index);
@@ -1908,25 +1893,26 @@ namespace datalog {
               }
             }
           }
-          TRACE("dl_query_plan",
-            tout << "picked regs ";
-          print_container(tail_index_picks, tout);
-          tout << " for " << mk_pp(r->get_tail(tail_index), g_compiler->m_context.get_manager()) << "\n";
-          );
-          picks.push_back(int2ints_pair(tail_index, tail_index_picks));
+
+          if (!tail_index_picks.empty()) {
+            picks.insert(tail_index, tail_index_picks);
+            TRACE("dl_query_plan",
+              tout << "picked regs ";
+            print_container(tail_index_picks, tout);
+            tout << " for " << mk_pp(r->get_tail(tail_index), g_compiler->m_context.get_manager()) << "\n";
+            );
+          }
         }
       }
 
 
       void make_query_plan(unsigned pt_len, unsigned ut_len, unsigned ft_len, ast_manager & m,
-        vector<int2ints_pair> & picks) {
+        int2ints & picks) {
         int2ints var_occurrences;
         compute_var_occurrences(pt_len, var_occurrences);
         TRACE("dl_query_plan", tout << "negated\n";);
-        ;
         pick_tail_indexes(pt_len, ut_len, var_occurrences, picks);
-        //pick_tail_regs(ut_len, ft_len, var_occurrences, r->get_uninterpreted_tail_size());
-
+        pick_tail_indexes(ut_len, ft_len, var_occurrences, picks);
       }
 
     public:
@@ -1941,13 +1927,13 @@ namespace datalog {
       virtual bool perform(execution_context & ctx) {
 
         TRACE("dl", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
-        TRACE("dl_stats", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
+        TRACE("dl_query_plan", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
         // caching
         if (acc.num_instructions() != 0) {
           acc.reset(); // recomputing every time
-          TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
-          acc.perform(ctx);
-          return true;
+        //  TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
+        //  acc.perform(ctx);
+        //  return true;
         }
         ast_manager & m = g_compiler->m_context.get_manager();
         g_compiler->m_instruction_observer.start_rule(r);
@@ -1974,7 +1960,7 @@ namespace datalog {
           pos_tail_preds.push_back(res_expr);
 
           pos_tail_regs.push_back(tail_regs[i]);
-          TRACE("dl_stats", if(pt_len > 1) {tout << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";});
+          TRACE("dl_query_plan", if(pt_len > 1) {tout << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";});
 
           int2ints var_indexes;
           pos_tail_var_indexes.push_back(var_indexes);
@@ -1992,33 +1978,33 @@ namespace datalog {
         // if interpreted_tail_preds.size() + neg_tail_preds.size() > 0 && pos_tail_preds.size() > 1
         // TODO unsigned_vector remaining_interpreted_tail;
         unsigned_vector remaining_negated_tail;
+        int_set tmp_regs;
         if (!empty && pt_len > 1) {
-          vector<int2ints_pair> picks;
+          int2ints picks;
           make_query_plan(pt_len, ut_len, ft_len, m, picks);
 
 #ifdef Z3DEBUG
           unsigned applications = 0;
 #endif
-          vector<int2ints_pair>::iterator picks_it = picks.begin(), picks_end = picks.end();
-          for (; picks_it != picks_end; ++picks_it) {
-            unsigned neg_index = picks_it->first;
-            unsigned_vector apply_to = picks_it->second;
-
-
-            if (apply_to.empty()) {
-              remaining_negated_tail.push_back(neg_index);
-            }
+          for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
+            int2ints::entry *entry = picks.find_core(neg_index);
+            if (entry) {
+              unsigned_vector apply_to = entry->get_data().m_value;
+              unsigned_vector::iterator at_it = apply_to.begin(), at_end = apply_to.end();
+              for (; at_it != at_end; ++at_it) {
+                unsigned pos_index = *at_it;
+                TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
+                reg_idx & pos_reg = pos_tail_regs[pos_index];
+                g_compiler->make_clone(pos_reg, pos_reg, acc);
+                tmp_regs.insert(pos_reg);
+                apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
+              }
 #ifdef Z3DEBUG
-            else {
               applications++;
-            }
 #endif
-
-            unsigned_vector::iterator at_it = apply_to.begin(), at_end = apply_to.end();
-            for (; at_it != at_end; ++at_it) {
-              unsigned pos_index = *at_it;
-              TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
-              apply_negative_predicate(pos_tail_preds[pos_index], pos_tail_regs[pos_index], neg_index, dealloc, ctx);
+            }
+            else {
+              remaining_negated_tail.push_back(neg_index);
             }
           }
           SASSERT(applications + remaining_negated_tail.size() == ut_len - pt_len);
@@ -2029,11 +2015,19 @@ namespace datalog {
           for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
             remaining_negated_tail.push_back(neg_index);
           }
+          SASSERT(remaining_negated_tail.size() == ut_len - pt_len);
         }
 
         do_join_project(pt_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 
         TRACE("dl_stats", tout << "after join " << (ctx.reg(pos_tail_regs[0]) ? ctx.reg(pos_tail_regs[0])->get_size_estimate_rows() : 0) << "\n";);
+
+        // clean up tmp regs for negation/filter before join
+        int_set::iterator tr_it = tmp_regs.begin(), tr_end = tmp_regs.end();
+        for (; tr_it != tr_end; ++tr_it) {
+          g_compiler->make_dealloc_non_void(*tr_it, acc);
+        }
+
 
         do_remaining_negation(remaining_negated_tail, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 
