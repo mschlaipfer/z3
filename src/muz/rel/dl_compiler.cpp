@@ -467,7 +467,10 @@ namespace datalog {
         }
     }    
     
-    void compiler::get_local_indexes_for_projection(rule *r, const vector<expr_ref_vector> & pos_tail_preds,
+    void compiler::get_local_indexes_for_projection(rule *r,
+      const unsigned_vector & remaining_negated_tail,
+      const unsigned_vector & remaining_interpreted_tail,
+      const vector<expr_ref_vector> & pos_tail_preds,
       const expr_ref_vector & intm_result,
       unsigned tail_offset, unsigned_vector & res) {
       rule_counter counter;
@@ -482,11 +485,13 @@ namespace datalog {
         for (unsigned i = tail_offset; i < pos_tail_preds.size(); ++i) { // rest of pos
           counter_tail.count_vars(pos_tail_preds[i]);
         }
-        for (unsigned i = r->get_positive_tail_size(); i < r->get_uninterpreted_tail_size(); ++i) { // neg
-          counter_tail.count_vars(r->get_tail(i));
+        unsigned_vector::const_iterator neg_it = remaining_negated_tail.begin(), neg_end = remaining_negated_tail.end();
+        for (; neg_it != neg_end; ++neg_it) { // neg
+          counter_tail.count_vars(r->get_tail(*neg_it));
         }
-        for (unsigned i = r->get_uninterpreted_tail_size(); i < n; ++i) { // interpreted
-          counter_tail.count_vars(r->get_tail(i));
+        unsigned_vector::const_iterator int_it = remaining_interpreted_tail.begin(), int_end = remaining_interpreted_tail.end();
+        for (; int_it != int_end; ++int_it) { // interpreted
+          counter_tail.count_vars(r->get_tail(*int_it));
         }
 
         rule_counter::iterator I = counter_tail.begin(), E = counter_tail.end();
@@ -505,7 +510,10 @@ namespace datalog {
       get_local_indexes_for_projection(t2, counter, intm_result.size(), res);
     }
 
-    void compiler::compile_join_project(rule *r, const vector<expr_ref_vector> & pos_tail_preds,
+    void compiler::compile_join_project(rule *r,
+        const unsigned_vector & remaining_negated_tail,
+        const unsigned_vector & remaining_interpreted_tail,
+        const vector<expr_ref_vector> & pos_tail_preds,
         const svector<reg_idx> & pos_tail_regs, 
         const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res, 
         expr_ref_vector & single_res_expr, 
@@ -533,7 +541,7 @@ namespace datalog {
           a1a2.populate(single_res_expr, a2);
 
           unsigned_vector curr_removed_cols;
-          get_local_indexes_for_projection(r, pos_tail_preds, single_res_expr, i + 1, curr_removed_cols);
+          get_local_indexes_for_projection(r, remaining_negated_tail, remaining_interpreted_tail, pos_tail_preds, single_res_expr, i + 1, curr_removed_cols);
           no_projection &= curr_removed_cols.empty();
           
           join_cols.push_back(a1a2);
@@ -591,7 +599,7 @@ namespace datalog {
         a1a2.populate(a1, a2);
 
         unsigned_vector removed_cols;
-        get_local_indexes_for_projection(r, pos_tail_preds, a1, 2, removed_cols);
+        get_local_indexes_for_projection(r, remaining_negated_tail, remaining_interpreted_tail, pos_tail_preds, a1, 2, removed_cols);
 
         if (removed_cols.empty()) {
           make_join(t1_reg, t2_reg, a1a2, single_res, false, acc);

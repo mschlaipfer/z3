@@ -1627,6 +1627,8 @@ namespace datalog {
       void do_join_project(unsigned pt_len, 
         func_decl * head_pred, vector<int2ints> & var_indexes,
         bool &dealloc, ast_manager & m, vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs,
+        const unsigned_vector & remaining_negated_tail,
+        const unsigned_vector & remaining_interpreted_tail,
         execution_context & ctx) {
         // used for computing whether col equality needs to be established
         unsigned_vector belongs_to;
@@ -1636,7 +1638,7 @@ namespace datalog {
         expr_ref_vector single_res_expr(m);
         int2ints single_var_indexes;
 
-        g_compiler->compile_join_project(r, res_preds, res_regs, m, pt_len,
+        g_compiler->compile_join_project(r, remaining_negated_tail, remaining_interpreted_tail, res_preds, res_regs, m, pt_len,
           belongs_to, single_res, single_res_expr, dealloc, acc);
 
         res_preds.reset();
@@ -2004,7 +2006,7 @@ namespace datalog {
           //reorder_interpreted(ut_len, ft_len, interpreted_picks, pos_tail_preds, pos_tail_regs, remaining_interpreted_tail, tmp_regs, m, dealloc, ctx);
         }
         else {
-          // No reordering befor joins
+          // No reordering before joins
           TRACE("dl_query_plan", tout << "EMPTY OR PT_LEN == 1\n";);
           for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
             remaining_negated_tail.push_back(neg_index);
@@ -2017,7 +2019,7 @@ namespace datalog {
           SASSERT(remaining_negated_tail.size() == ut_len - pt_len);
         }
 
-        do_join_project(pt_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
+        do_join_project(pt_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, remaining_negated_tail, remaining_interpreted_tail, ctx);
 
         TRACE("dl_stats", tout << "after join " << (ctx.reg(pos_tail_regs[0]) ? ctx.reg(pos_tail_regs[0])->get_size_estimate_rows() : 0) << "\n";);
 
