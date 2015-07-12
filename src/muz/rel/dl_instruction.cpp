@@ -1874,9 +1874,8 @@ namespace datalog {
         const vector<expr_ref_vector> & pos_tail_preds, svector<reg_idx> & pos_tail_regs, 
         unsigned_vector & remaining_negated_tail, int_set & tmp_regs,
         ast_manager & m, bool & dealloc, execution_context & ctx) {
-#ifdef Z3DEBUG
-        unsigned neg_applications = 0;
-#endif
+
+        unsigned neg_applications = 0; // TODO just for debugging
         for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
           int2ints::entry *entry = neg_picks.find_core(neg_index);
           if (entry) {
@@ -1890,9 +1889,7 @@ namespace datalog {
               tmp_regs.insert(pos_reg);
               apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
             }
-#ifdef Z3DEBUG
             neg_applications++;
-#endif
           }
           else {
             remaining_negated_tail.push_back(neg_index);
@@ -1906,9 +1903,8 @@ namespace datalog {
         const vector<expr_ref_vector> & pos_tail_preds, svector<reg_idx> & pos_tail_regs,
         unsigned_vector & remaining_interpreted_tail, int_set & tmp_regs,
         ast_manager & m, bool & dealloc, execution_context & ctx) {
-#ifdef Z3DEBUG
-        unsigned interpreted_applications = 0;
-#endif
+
+        unsigned interpreted_applications = 0; // TODO just for debugging
         for (unsigned interpreted_index = ut_len; interpreted_index < ft_len; ++interpreted_index) {
           int2ints::entry *entry = interpreted_picks.find_core(interpreted_index);
           if (entry) {
@@ -1924,9 +1920,7 @@ namespace datalog {
               //tmp_regs.insert(pos_reg);
               //apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, ctx);
             }
-#ifdef Z3DEBUG
             interpreted_applications++;
-#endif
           }
           else {
             remaining_interpreted_tail.push_back(interpreted_index);
