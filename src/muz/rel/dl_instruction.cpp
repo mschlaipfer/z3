@@ -1873,16 +1873,35 @@ namespace datalog {
 
       void pick_tail_indexes(unsigned start_index, unsigned end_index,
         const int2ints & pt_var_occurrences,
+        bool interpreted,
         ast_manager &m,
         int2ints &picks) {
         for (unsigned tail_index = start_index; tail_index < end_index; ++tail_index) {
           unsigned_vector tail_index_picks;
           app * pred = r->get_tail(tail_index);
+          // TODO
+          // expr is_var?: (concat #x000000 (:var 17)) false
           unsigned_vector vars;
-          for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
-            expr * e = r->get_tail(tail_index)->get_arg(arg_index);
-            if (is_var(e)) {
-              vars.push_back(to_var(e)->get_idx());
+          if (interpreted) {
+            g_compiler->m_free_vars(pred);
+            for (unsigned v = 0; v < g_compiler->m_free_vars.size(); ++v) {
+              if (!g_compiler->m_free_vars[v]) {
+                continue;
+              }
+              vars.push_back(v);
+            }
+          }
+          else {
+            for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
+              expr * e = r->get_tail(tail_index)->get_arg(arg_index);
+              TRACE("dl_query_plan", tout << "expr is_var?: " << mk_pp(e, m) << "\n";);
+              if (is_var(e)) {
+                TRACE("dl_query_plan", tout << "yes\n";);
+                vars.push_back(to_var(e)->get_idx());
+              }
+              else {
+                TRACE("dl_query_plan", tout << "no\n";);
+              }
             }
           }
           unsigned num_vars = vars.size();
@@ -1934,9 +1953,9 @@ namespace datalog {
         int2ints pt_var_occurrences;
         compute_var_occurrences(pt_len, pt_var_occurrences);
         TRACE("dl_query_plan", tout << "negated\n";);
-        pick_tail_indexes(pt_len, ut_len, pt_var_occurrences, m, neg_picks);
+        pick_tail_indexes(pt_len, ut_len, pt_var_occurrences, false, m, neg_picks);
         TRACE("dl_query_plan", tout << "interpreted\n";);
-        pick_tail_indexes(ut_len, ft_len, pt_var_occurrences, m, interpreted_picks);
+        pick_tail_indexes(ut_len, ft_len, pt_var_occurrences, true, m, interpreted_picks);
       }
 
       void reorder_negations(unsigned pt_len, unsigned ut_len, const int2ints & neg_picks, 
