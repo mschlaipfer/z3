@@ -414,7 +414,7 @@ namespace datalog {
           /*  store_fn(r1, r2, i, fn);
           }*/
 
-          TRACE("dl",
+          TRACE("dl_stats",
           r1.get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << r1.get_size_estimate_rows() << " x ";
           r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
@@ -422,11 +422,12 @@ namespace datalog {
 
           ctx.set_reg(m_result, (*fn)(r1, r2));
 
-          TRACE("dl",
+          TRACE("dl_stats",
             ctx.reg(m_result)->get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << ctx.reg(m_result)->get_size_estimate_rows() << "\n";);
 
           if (ctx.reg(m_result)->fast_empty()) {
+            TRACE("dl_stats", tout << "early exit after " << i << " iterations\n";);
             ctx.make_empty(m_result);
             return true;
           }
@@ -434,7 +435,7 @@ namespace datalog {
           join_reg1 = m_result;
           i++;
         }
-
+        TRACE("dl_stats", tout << "no early exit\n";);
         return true;
       }
       virtual void make_annotations(execution_context & ctx) {
@@ -975,22 +976,20 @@ namespace datalog {
           }
           /*  store_fn(r1, r2, i, fn);
           }*/
-          /*
-          TRACE("dl", tout << "input: ";
+          TRACE("dl_stats", tout << "input: ";
             r1.get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << r1.get_size_estimate_rows() << " x ";
           r2.get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << r2.get_size_estimate_rows() << " ->\n";);
-          */
 
           ctx.set_reg(m_result, (*fn)(r1, r2));
-          /*
-          TRACE("dl", tout << "output: ";
+
+          TRACE("dl_stats", tout << "output: ";
             ctx.reg(m_result)->get_signature().output(ctx.get_rel_context().get_manager(), tout);
           tout << ":" << ctx.reg(m_result)->get_size_estimate_rows() << "\n";);
-          */
 
           if (ctx.reg(m_result)->fast_empty()) {
+            TRACE("dl_stats", tout << "early exit after " << i << " iterations\n";);
             ctx.make_empty(m_result);
             return true;
           }
@@ -999,6 +998,7 @@ namespace datalog {
           i++;
         }
 
+        TRACE("dl_stats", tout << "no early exit\n";);
         return true;
       }
       virtual void make_annotations(execution_context & ctx) {
@@ -1959,8 +1959,9 @@ namespace datalog {
                 g_compiler->make_clone(pos_reg, pos_reg, acc);
                 tmp_regs.insert(pos_reg);
               }
+              TRACE("dl_stats", tout << "before neg " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, m, ctx);
-              TRACE("dl_stats", if (pt_len > 1) { tout << "after neg " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n"; });
+              TRACE("dl_stats", tout << "after neg " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
             }
             neg_applications++;
           }
@@ -1994,7 +1995,9 @@ namespace datalog {
                 g_compiler->make_clone(pos_reg, pos_reg, acc);
                 tmp_regs.insert(pos_reg);
               }
+              TRACE("dl_stats", tout << "before filter " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               apply_filter(pos_tail_preds[pos_index], interpreted_index, pos_reg, dealloc, m, ctx);
+              TRACE("dl_stats", tout << "after filter " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
             }
             interpreted_applications++;
           }
@@ -2053,7 +2056,7 @@ namespace datalog {
           pos_tail_preds.push_back(res_expr);
 
           pos_tail_regs.push_back(tail_regs[i]);
-          TRACE("dl_stats", if(pt_len > 1) {tout << "before join " << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";});
+          TRACE("dl_stats", if(pt_len > 1) {tout << "at start " << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";});
 
           int2ints var_indexes;
           pos_tail_var_indexes.push_back(var_indexes);
