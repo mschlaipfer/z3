@@ -1960,7 +1960,7 @@ namespace datalog {
 
       void reorder_negations(unsigned pt_len, unsigned ut_len, const int2ints & neg_picks, 
         vector<expr_ref_vector> & pos_tail_preds, svector<reg_idx> & pos_tail_regs, 
-        unsigned_vector & remaining_negated_tail, int_set & tmp_regs,
+        unsigned_vector & remaining_negated_tail, int_set & aux_regs,
         ast_manager & m, bool & dealloc, execution_context & ctx) {
 
         unsigned neg_applications = 0; // TODO just for debugging
@@ -1973,12 +1973,13 @@ namespace datalog {
               unsigned pos_index = *at_it;
               TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
               reg_idx & pos_reg = pos_tail_regs[pos_index];
+              TRACE("dl_stats", tout << "tail @ pos_index: " << mk_pp(r->get_tail(pos_index), m) << " pos_index: " << pos_index << " pos_reg: " << pos_reg << "\n"
+                                     << "before neg " << ctx.reg(pos_reg) << " #rows " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               // only need to clone if reg is in "original" positive tail
-              if (!tmp_regs.contains(pos_reg)) {
-                g_compiler->make_clone(pos_reg, pos_reg, acc);
-                tmp_regs.insert(pos_reg);
+              if (!aux_regs.contains(pos_reg)) {
+                g_compiler->make_clone(pos_reg, pos_reg, acc); // FIXME: maybe reuse aux_regs
+                aux_regs.insert(pos_reg);
               }
-              TRACE("dl_stats", tout << "before neg " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, m, ctx);
               TRACE("dl_stats", tout << "after neg " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
             }
@@ -1994,7 +1995,7 @@ namespace datalog {
 
       void reorder_interpreted(unsigned ut_len, unsigned ft_len, const int2ints & interpreted_picks,
         vector<expr_ref_vector> & pos_tail_preds, svector<reg_idx> & pos_tail_regs,
-        unsigned_vector & remaining_interpreted_tail, int_set & tmp_regs,
+        unsigned_vector & remaining_interpreted_tail, int_set & aux_regs,
         ast_manager & m, bool & dealloc, execution_context & ctx) {
 
         unsigned interpreted_applications = 0; // TODO just for debugging
@@ -2007,14 +2008,13 @@ namespace datalog {
               unsigned pos_index = *at_it;
               TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
               reg_idx & pos_reg = pos_tail_regs[pos_index];
-
-              //TODO
+              TRACE("dl_stats", tout << "tail @ pos_index: " << mk_pp(r->get_tail(pos_index), m) << " pos_index: " << pos_index << " pos_reg: " << pos_reg << "\n"
+                                     << "before filter " << ctx.reg(pos_reg) << " #rows " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               // only need to clone if reg is in "original" positive tail
-              if (!tmp_regs.contains(pos_reg)) {
-                g_compiler->make_clone(pos_reg, pos_reg, acc);
-                tmp_regs.insert(pos_reg);
+              if (!aux_regs.contains(pos_reg)) {
+                g_compiler->make_clone(pos_reg, pos_reg, acc); // FIXME: maybe reuse aux_regs
+                aux_regs.insert(pos_reg);
               }
-              TRACE("dl_stats", tout << "before filter " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               apply_filter(pos_tail_preds[pos_index], interpreted_index, pos_reg, dealloc, m, ctx);
               TRACE("dl_stats", tout << "after filter " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
             }
@@ -2092,14 +2092,14 @@ namespace datalog {
 
         unsigned_vector remaining_negated_tail;
         unsigned_vector remaining_interpreted_tail;
-        int_set tmp_regs;
+        int_set aux_regs;
         if (!empty && pt_len > 1 && ft_len - pt_len > 0) {
           int2ints neg_picks, interpreted_picks;
           make_query_plan(pt_len, ut_len, ft_len, m, neg_picks, interpreted_picks);
 
-          reorder_negations(pt_len, ut_len, neg_picks, pos_tail_preds, pos_tail_regs, remaining_negated_tail, tmp_regs, m, dealloc, ctx);
+          reorder_negations(pt_len, ut_len, neg_picks, pos_tail_preds, pos_tail_regs, remaining_negated_tail, aux_regs, m, dealloc, ctx);
           
-          reorder_interpreted(ut_len, ft_len, interpreted_picks, pos_tail_preds, pos_tail_regs, remaining_interpreted_tail, tmp_regs, m, dealloc, ctx);
+          reorder_interpreted(ut_len, ft_len, interpreted_picks, pos_tail_preds, pos_tail_regs, remaining_interpreted_tail, aux_regs, m, dealloc, ctx);
         }
         else {
           // No reordering before joins
@@ -2115,12 +2115,20 @@ namespace datalog {
           SASSERT(remaining_interpreted_tail.size() == ft_len - ut_len);
         }
 
+        if (!empty) {
+          TRACE("dl_stats", tout << "all not empty:\n";
+            for (unsigned i = 0; i < pt_len; ++i) {
+              tout << "  " << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";
+            }
+          );
+        }
+
         do_join_project(pt_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, remaining_negated_tail, remaining_interpreted_tail, ctx);
 
         TRACE("dl_stats", tout << "after join " << (ctx.reg(pos_tail_regs[0]) ? ctx.reg(pos_tail_regs[0])->get_size_estimate_rows() : 0) << "\n";);
 
         // clean up tmp regs for negation/filter before join
-        int_set::iterator tr_it = tmp_regs.begin(), tr_end = tmp_regs.end();
+        int_set::iterator tr_it = aux_regs.begin(), tr_end = aux_regs.end();
         for (; tr_it != tr_end; ++tr_it) {
           g_compiler->make_dealloc_non_void(*tr_it, acc);
         }

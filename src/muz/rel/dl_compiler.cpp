@@ -211,8 +211,8 @@ namespace datalog {
 
     void compiler::make_dealloc_non_void(reg_idx r, instruction_block & acc) {
       if (r != execution_context::void_register) {
+        // m_reg_signatures does not get updated
         acc.push_back(instruction::mk_dealloc(r));
-        ///*acc.push_back*/(instruction::mk_dealloc(r)->perform(m_ectx));
       }
     }
 
