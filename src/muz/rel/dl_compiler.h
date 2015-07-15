@@ -107,17 +107,12 @@ namespace datalog {
 
         context & m_context;
         rule_set const & m_rule_set;
-        /**
-           Invariant: the \c m_top_level_code never contains the loop that is being constructed,
-           so instruction that need to be executed before the loop can be pushed into it.
-         */
-        //instruction_block & m_top_level_code;
+
         pred2idx m_pred_regs;
         vector<relation_signature>        m_reg_signatures;
         obj_pair_map<sort, app, reg_idx>  m_constant_registers;
         obj_pair_map<sort, decl, reg_idx> m_total_registers;
         obj_map<decl, reg_idx>            m_empty_tables_registers;
-        //instruction_observer              m_instruction_observer;
         expr_free_vars                    m_free_vars;
 
         execution_context & m_ectx;
@@ -207,22 +202,22 @@ namespace datalog {
            Used to get input for the "project" part of join-project.
          */
         void get_local_indexes_for_projection(rule *r,
-          const unsigned_vector & remaining_negated_tail,
-          const unsigned_vector & remaining_interpreted_tail,
-          const vector<expr_ref_vector> & pos_tail_preds,
-          const expr_ref_vector & intm_result, unsigned tail_offset,
-          unsigned_vector & res);
+            const unsigned_vector & remaining_negated_tail,
+            const unsigned_vector & remaining_interpreted_tail,
+            const vector<expr_ref_vector> & pos_tail_preds,
+            const expr_ref_vector & intm_result, unsigned tail_offset,
+            unsigned_vector & res);
         void get_local_indexes_for_projection(const expr_ref_vector & t, var_counter & globals, unsigned ofs,
-          unsigned_vector & res);
+            unsigned_vector & res);
 
         void compile_join_project(rule *r, 
-          const unsigned_vector & remaining_negated_tail,
-          const unsigned_vector & remaining_interpreted_tail,
-          const vector<expr_ref_vector> & pos_tail_preds,
-          const svector<reg_idx> & pos_tail_regs, 
-          const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
-          expr_ref_vector & single_res_expr,
-          bool & dealloc, execution_context & ctx);
+            const unsigned_vector & remaining_negated_tail,
+            const unsigned_vector & remaining_interpreted_tail,
+            const vector<expr_ref_vector> & pos_tail_preds,
+            const svector<reg_idx> & pos_tail_regs, 
+            const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
+            expr_ref_vector & single_res_expr,
+            bool & dealloc, execution_context & ctx);
 
         /**
            \brief Into \c acc add instructions that will add new facts following from the rule into 
@@ -284,8 +279,6 @@ namespace datalog {
             : m_context(ctx), 
             m_rule_set(rules),
             m_ectx(ectx) {}
-            //m_top_level_code(top_level_code),
-            //m_instruction_observer(*this) {}
         
         /**
            \brief Compile \c rules in to pseudocode.

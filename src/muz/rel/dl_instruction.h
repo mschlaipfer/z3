@@ -243,7 +243,6 @@ namespace datalog {
         typedef execution_context::reg_type reg_type;
         typedef execution_context::reg_idx reg_idx;
 
-        // TODO
         typedef hashtable<unsigned, u_hash, u_eq> int_set;
         typedef u_map<unsigned> int2int;
         typedef u_map<unsigned_vector> int2ints;
@@ -320,7 +319,9 @@ namespace datalog {
          */
         static void mk_mark_saturated(ast_manager & m, func_decl * pred, execution_context & ctx);
 
+        /* TODO currently not used
         static instruction * mk_assert_signature(const relation_signature & s, reg_idx tgt);
+        */
 
         static void mk_exec(rule * r, reg_idx head_reg, const reg_idx * tail_regs,
             reg_idx delta_reg, bool use_widening, execution_context & ctx);

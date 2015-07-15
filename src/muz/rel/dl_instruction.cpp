@@ -437,7 +437,7 @@ namespace datalog {
           tout << ":" << ctx.reg(m_result)->get_size_estimate_rows() << "\n";);
 
           if (ctx.reg(m_result)->fast_empty()) {
-            TRACE("dl_stats", tout << "early exit after " << i << " iterations\n";);
+            TRACE("dl_stats", tout << "early exit after " << i + 1 << " iterations\n";);
             ctx.make_empty(m_result);
             return true;
           }
@@ -445,7 +445,7 @@ namespace datalog {
           join_reg1 = m_result;
           i++;
         }
-        TRACE("dl_stats", tout << "no early exit\n";);
+        TRACE("dl_stats", tout << "no early exit " << i << "\n";);
         return true;
       }
       virtual void make_annotations(execution_context & ctx) {
@@ -1021,7 +1021,7 @@ namespace datalog {
           tout << ":" << ctx.reg(m_result)->get_size_estimate_rows() << "\n";);
 
           if (ctx.reg(m_result)->fast_empty()) {
-            TRACE("dl_stats", tout << "early exit after " << i << " iterations\n";);
+            TRACE("dl_stats", tout << "early exit after " << i + 1 << " iterations\n";);
             ctx.make_empty(m_result);
             return true;
           }
@@ -1030,7 +1030,7 @@ namespace datalog {
           i++;
         }
 
-        TRACE("dl_stats", tout << "no early exit\n";);
+        TRACE("dl_stats", tout << "no early exit " << i << "\n";);
         return true;
       }
       virtual void make_annotations(execution_context & ctx) {
@@ -1365,6 +1365,7 @@ namespace datalog {
         dealloc(instr);
     }
 
+    /* TODO currently not used 
     class instr_assert_signature : public instruction {
         relation_signature m_sig;
         reg_idx m_tgt;
@@ -1393,6 +1394,7 @@ namespace datalog {
     instruction * instruction::mk_assert_signature(const relation_signature & s, reg_idx tgt) {
         return alloc(instr_assert_signature, s, tgt);
     }
+    */
 
     extern compiler * g_compiler;
     class instr_exec : public instruction {
@@ -1404,7 +1406,7 @@ namespace datalog {
     private:
 
       void apply_negative_predicate(expr_ref_vector & pos_expr, unsigned & pos_reg, unsigned neg_index, bool & dealloc, ast_manager & m, execution_context & ctx) {
-        //enforce negative predicates
+        //enforce negative predicate
         app * neg_app = r->get_tail(neg_index);
         func_decl * neg_pred = neg_app->get_decl();
         variable_intersection neg_intersection(m);
@@ -1483,19 +1485,8 @@ namespace datalog {
       void do_remaining_negation(const unsigned_vector & remaining_neg_tail,
         func_decl * head_pred, vector<int2ints> & var_indexes, bool &dealloc, ast_manager & m,
         vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs, execution_context & ctx) {
-        SASSERT(!res_preds.empty()); // because join_project always adds a result
-        /*if (res_preds.empty()) {
-          expr_ref_vector res_expr(m);
-          reg_idx res_reg = execution_context::void_register;
-          var_indexes.push_back(int2ints());
-          dealloc = false; // TODO ? that's how it goes in original case
-
-          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[0], dealloc, ctx, acc);
-          //make_negation(head_pred, pt_len, ut_len, res_expr, res_reg, dealloc, ctx);
-          res_preds.push_back(res_expr);
-          res_regs.push_back(res_reg);
-        }
-        else {*/
+        // because join_project always adds a result and this function comes after
+        SASSERT(!res_preds.empty());
         unsigned i = 0;
         for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
           it != end; ++it, ++i) {
@@ -1504,7 +1495,6 @@ namespace datalog {
           g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[i], dealloc, ctx);
           make_remaining_negation(head_pred, remaining_neg_tail, res_expr, res_reg, dealloc, ctx);
         }
-        //}
       }
 
       void compute_var_indexes(const expr_ref_vector &pred, int2ints &var_indexes) {
@@ -1599,7 +1589,7 @@ namespace datalog {
       }
 
       void apply_filter(expr_ref_vector & pos_expr, unsigned interpreted_index, reg_idx &pos_index, bool &dealloc, ast_manager & m, execution_context & ctx) {
-        // add unbounded columns for interpreted filter
+
         expr_ref_vector binding(m);
 
         app_ref filter_cond(to_app(r->get_tail(interpreted_index)), m);
@@ -1625,43 +1615,19 @@ namespace datalog {
 
           int2ints::entry * entry = var_indexes.find_core(v);
           unsigned src_col;
-          if (entry) {
-            src_col = entry->get_data().m_value.back();
-          }
-          else {
-            SASSERT(false); // we only choose this positive index because there was an intersection between interpreted tail and pos expr
-            //TRACE("dl", tout << "v: " << v << " ADD_UNBOUND_COLUMN " << res_reg << " dealloc: " << dealloc << "\n";);
-            //// we have an unbound variable, so we add an unbound column for it
-            //relation_sort unbound_sort = g_compiler->m_free_vars[v];
+          // we only choose this positive index because there was an 
+          // intersection between interpreted tail and pos expr
+          SASSERT(entry);
+          src_col = entry->get_data().m_value.back();
 
-            //g_compiler->make_add_unbound_column(r, 0, head_pred, res_reg, unbound_sort, res_reg, dealloc, ctx, acc);
-            //src_col = res_expr.size();
-            //res_expr.push_back(m.mk_var(v, unbound_sort));
-
-            //entry = var_indexes.insert_if_not_there2(v, unsigned_vector());
-            //entry->get_data().m_value.push_back(src_col);
-          }
           relation_sort var_sort = g_compiler->m_reg_signatures[pos_index][src_col];
           binding[g_compiler->m_free_vars.size() - v] = m.mk_var(src_col, var_sort);
         }
 
-        // check if there are any columns to remove
-        //unsigned_vector remove_columns;
-        //do_remove_columns(res_expr, var_indexes, remove_columns);
-
         expr_ref renamed(m);
         g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
         app_ref app_renamed(to_app(renamed), m);
-        //if (remove_columns.empty()) {
-          //if (!dealloc)
-          //  g_compiler->make_clone(res_reg, res_reg, acc);
         instruction::mk_filter_interpreted(pos_index, app_renamed, ctx);
-        //}
-        //else {
-        //  std::sort(remove_columns.begin(), remove_columns.end());
-        //  g_compiler->make_filter_interpreted_and_project(res_reg, app_renamed, remove_columns, res_reg, dealloc, acc);
-        //}
-
       }
 
 
@@ -1701,22 +1667,9 @@ namespace datalog {
         for (; rem_it != rem_end; ++rem_it) {
           interpreted_tail.push_back(r->get_tail(*rem_it));
         }
-        SASSERT(!res_preds.empty()); // because join_project always adds a result
-        /*if (res_preds.empty()) {
-          if (!interpreted_tail.empty()) {
-            expr_ref_vector res_expr(m);
-            reg_idx res_reg = execution_context::void_register;
-            var_indexes.push_back(int2ints());
-            dealloc = false; // TODO ? that's how it goes in original case
+        // because join_project always adds a result and this function comes after
+        SASSERT(!res_preds.empty());
 
-            make_filter(res_expr, interpreted_tail, head_pred, var_indexes[0], res_reg, dealloc, m, ctx);
-
-            res_preds.push_back(res_expr);
-            res_regs.push_back(res_reg);
-            dealloc = true;
-          }
-        }
-        else {*/
         if (!interpreted_tail.empty()) {
           unsigned i = 0;
           for (vector<expr_ref_vector>::iterator it = res_preds.begin(), end = res_preds.end();
@@ -1729,7 +1682,6 @@ namespace datalog {
             dealloc = true;
           }
         }
-        //}
       }
       
       void do_join_project(unsigned pt_len, 
@@ -1924,8 +1876,8 @@ namespace datalog {
         for (unsigned tail_index = start_index; tail_index < end_index; ++tail_index) {
           unsigned_vector tail_index_picks;
           app * pred = r->get_tail(tail_index);
-          // TODO
-          // expr is_var?: (concat #x000000 (:var 17)) false
+          // using m_free_vars because of nested expressions like
+          //   (concat #x000000 (:var 17)) false
           unsigned_vector vars;
           if (interpreted) {
             g_compiler->m_free_vars(pred);
@@ -1939,13 +1891,8 @@ namespace datalog {
           else {
             for (unsigned arg_index = 0; arg_index < pred->get_num_args(); ++arg_index) {
               expr * e = r->get_tail(tail_index)->get_arg(arg_index);
-              TRACE("dl_query_plan", tout << "expr is_var?: " << mk_pp(e, m) << "\n";);
               if (is_var(e)) {
-                TRACE("dl_query_plan", tout << "yes\n";);
                 vars.push_back(to_var(e)->get_idx());
-              }
-              else {
-                TRACE("dl_query_plan", tout << "no\n";);
               }
             }
           }
@@ -2074,6 +2021,16 @@ namespace datalog {
         SASSERT(interpreted_applications + remaining_interpreted_tail.size() == ft_len - ut_len);
       }
 
+
+
+      void plan_joins() {
+        // TODO
+        // small to large?
+        // deltas first?
+        // variable overlap?
+
+      }
+
     public:
       instr_exec(rule * r, reg_idx head_reg, const reg_idx * regs,
         reg_idx delta_reg, bool use_widening)
@@ -2088,15 +2045,8 @@ namespace datalog {
         TRACE("dl", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
         TRACE("dl_stats", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
         TRACE("dl_query_plan", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
-        // caching
-        //if (acc.num_instructions() != 0) {
-        //  acc.reset(); // recomputing every time
-        //  TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
-        //  acc.perform(ctx);
-        //  return true;
-        //}
+
         ast_manager & m = g_compiler->m_context.get_manager();
-        //g_compiler->m_instruction_observer.start_rule(r);
 
         const app * h = r->get_head();
         unsigned head_len = h->get_num_args();
@@ -2168,11 +2118,13 @@ namespace datalog {
           );
         }
 
+        plan_joins();
+
         do_join_project(pt_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, remaining_negated_tail, remaining_interpreted_tail, ctx);
 
         TRACE("dl_stats", tout << "after join " << (ctx.reg(pos_tail_regs[0]) ? ctx.reg(pos_tail_regs[0])->get_size_estimate_rows() : 0) << "\n";);
 
-        // clean up tmp regs for negation/filter before join
+        // clean up auxiliary regs for negation/filter before join
         int_set::iterator tr_it = aux_regs.begin(), tr_end = aux_regs.end();
         for (; tr_it != tr_end; ++tr_it) {
           g_compiler->make_dealloc_non_void(*tr_it, ctx);
@@ -2183,15 +2135,8 @@ namespace datalog {
 
         do_remaining_filter(remaining_interpreted_tail, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 
-
         do_assemble(head_len, h, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
-
-        //    finish:
-        //g_compiler->m_instruction_observer.finish_rule();
         
-        //TRACE("dl", tout << "non-cache CODE\n"; acc.display(ctx, tout););
-        //acc.perform(ctx);
-
         return true;
       }
       virtual void display_head_impl(execution_context const& ctx, std::ostream & out) const {

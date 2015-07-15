@@ -34,7 +34,6 @@ namespace datalog {
 
     void compiler::reset() {
         m_pred_regs.reset();
-        //instruction_bin.reset(); // cleaning up instructions that are performed right away
     }
 
     void compiler::ensure_predicate_loaded(func_decl * pred, execution_context & ctx) {
@@ -892,22 +891,20 @@ namespace datalog {
     }
 
     bool compiler::control_is_empty(const svector<reg_idx> & controls, execution_context & ctx) {
-      svector<reg_idx>::const_iterator it = controls.begin();
-      svector<reg_idx>::const_iterator end = controls.end();
-      for (; it != end; ++it) {
-        reg_idx r = *it;
-        if (ctx.reg(r) && !ctx.reg(r)->fast_empty()) {
-          return false;
+        svector<reg_idx>::const_iterator it = controls.begin();
+        svector<reg_idx>::const_iterator end = controls.end();
+        for (; it != end; ++it) {
+            reg_idx r = *it;
+            if (ctx.reg(r) && !ctx.reg(r)->fast_empty()) {
+                return false;
+            }
         }
-      }
-      return true;
+        return true;
     }
 
     void compiler::compile_loop(const func_decl_vector & head_preds, const func_decl_set & widened_preds,
             const pred2idx & global_head_deltas, const pred2idx & global_tail_deltas, 
             const pred2idx & local_deltas, execution_context & ctx) {
-        //instruction_block * loop_body = alloc(instruction_block);
-        //loop_body->set_observer(&m_instruction_observer);
 
         pred2idx all_head_deltas(global_head_deltas);
         unite_disjoint_maps(all_head_deltas, local_deltas);
@@ -928,11 +925,6 @@ namespace datalog {
           //and clear local deltas
           make_inloop_delta_transition(global_head_deltas, global_tail_deltas, local_deltas, ctx);
         }
-        //loop_body->set_observer(0);
-        //acc.push_back(instruction::mk_while_loop(loop_control_regs.size(),
-        //  loop_control_regs.c_ptr(), loop_body));
-        ///*acc.push_back*/(instruction::mk_while_loop(loop_control_regs.size(),
-        //  loop_control_regs.c_ptr(), loop_body)->perform(m_ectx));
     }
 
     void compiler::compile_dependent_rules(const func_decl_set & head_preds,
@@ -1108,10 +1100,6 @@ namespace datalog {
             return;
         }
 
-        //instruction_block & acc = execution_code;
-        //acc.set_observer(&m_instruction_observer);
-
-
         //load predicate data
         for(unsigned i=0;i<rule_cnt;i++) {
             const rule * r = m_rule_set.get_rule(i);
@@ -1139,10 +1127,6 @@ namespace datalog {
             reg_idx reg = e.m_value;
             instruction::mk_store(m_context.get_manager(), pred, reg, ectx);
         }
-
-        //acc.set_observer(0);
-
-        //TRACE("dl_code", execution_code.display(execution_context(m_context), tout););
     }
 
 
