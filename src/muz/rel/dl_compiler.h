@@ -111,17 +111,16 @@ namespace datalog {
            Invariant: the \c m_top_level_code never contains the loop that is being constructed,
            so instruction that need to be executed before the loop can be pushed into it.
          */
-        instruction_block & m_top_level_code;
+        //instruction_block & m_top_level_code;
         pred2idx m_pred_regs;
         vector<relation_signature>        m_reg_signatures;
         obj_pair_map<sort, app, reg_idx>  m_constant_registers;
         obj_pair_map<sort, decl, reg_idx> m_total_registers;
         obj_map<decl, reg_idx>            m_empty_tables_registers;
-        instruction_observer              m_instruction_observer;
+        //instruction_observer              m_instruction_observer;
         expr_free_vars                    m_free_vars;
 
-        // for cleaning up insructions that are executed right away.
-        instruction_block instruction_bin;
+        execution_context & m_ectx;
 
         /**
            If true, the union operation on the underlying structure only provides the information
@@ -148,30 +147,30 @@ namespace datalog {
         void get_fresh_registers(const func_decl_set & preds,  pred2idx & regs);
 
         void make_join(reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result, 
-            bool reuse_t1, instruction_block & acc);
+            bool reuse_t1, execution_context & ctx);
         void make_join_project(reg_idx t1, reg_idx t2, const variable_intersection & vars, 
-            const unsigned_vector & removed_cols, reg_idx & result, bool reuse_t1, instruction_block & acc);
+            const unsigned_vector & removed_cols, reg_idx & result, bool reuse_t1, execution_context & ctx);
         void make_filter_interpreted_and_project(reg_idx src, app_ref & cond,
-            const unsigned_vector & removed_cols, reg_idx & result, bool reuse, instruction_block & acc);
+            const unsigned_vector & removed_cols, reg_idx & result, bool reuse, execution_context & ctx);
         void make_select_equal_and_project(reg_idx src, const relation_element val, unsigned col,
-            reg_idx & result, bool reuse, instruction_block & acc);
+            reg_idx & result, bool reuse, execution_context & ctx);
 
         void make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, 
-          const vector<variable_intersection> & vars,
-          reg_idx & result, bool reuse_t1, instruction_block & acc);
+            const vector<variable_intersection> & vars,
+            reg_idx & result, bool reuse_t1, execution_context & ctx);
         void make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
-          const vector<variable_intersection> & vars, 
-          const vector<unsigned_vector> & removed_cols,
-          reg_idx & result, bool reuse_t1, instruction_block & acc);
+            const vector<variable_intersection> & vars, 
+            const vector<unsigned_vector> & removed_cols,
+            reg_idx & result, bool reuse_t1, execution_context & ctx);
         /**
            \brief Create add an union or widen operation and put it into \c acc.
         */
-        void make_union(reg_idx src, reg_idx tgt, reg_idx delta, bool widening, instruction_block & acc);
+        void make_union(reg_idx src, reg_idx tgt, reg_idx delta, bool widening, execution_context & ctx);
         void make_projection(reg_idx src, unsigned col_cnt, const unsigned * removed_cols, 
-            reg_idx & result, bool reuse, instruction_block & acc);
+            reg_idx & result, bool reuse, execution_context & ctx);
         void make_rename(reg_idx src, unsigned cycle_len, const unsigned * permutation_cycle, 
-            reg_idx & result, bool reuse, instruction_block & acc);
-        void make_clone(reg_idx src, reg_idx & result, instruction_block & acc);
+            reg_idx & result, bool reuse, execution_context & ctx);
+        void make_clone(reg_idx src, reg_idx & result, execution_context & ctx);
 
         /**
            \brief Into \c acc add code that will assemble columns of a relation according to description
@@ -181,28 +180,25 @@ namespace datalog {
            with empty signature.
         */
         void make_assembling_code(rule* compiled_rule, func_decl* head_pred, reg_idx src, const svector<assembling_column_info> & acis0,
-            reg_idx & result, bool & dealloc, execution_context & ctx, instruction_block & acc);
+            reg_idx & result, bool & dealloc, execution_context & ctx);
 
-        void make_dealloc_non_void(reg_idx r, instruction_block & acc);
+        void make_dealloc_non_void(reg_idx r, execution_context & ctx);
 
         void make_add_constant_column(func_decl* pred, reg_idx src, const relation_sort s, const relation_element val,
-            reg_idx & result, bool & dealloc, execution_context & ctx, instruction_block & acc);
+            reg_idx & result, bool & dealloc, execution_context & ctx);
 
         void make_add_unbound_column(rule* compiled_rule, unsigned col_idx, func_decl* pred, reg_idx src, const relation_sort s, reg_idx & result,
-            bool & dealloc, execution_context & ctx, instruction_block & acc);
+            bool & dealloc, execution_context & ctx);
         void make_full_relation(func_decl* pred, const relation_signature & sig, reg_idx & result, 
-            execution_context & ctx, instruction_block & acc);
+            execution_context & ctx);
 
         void add_unbound_columns_for_negation(rule* compiled_rule, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr,
             int2ints & var_indexes, 
-            #if 0
-            int_set & apply_now, 
-            #endif
-            bool & dealloc, execution_context & ctx, instruction_block& acc);
+            bool & dealloc, execution_context & ctx);
         
-        void make_duplicate_column(reg_idx src, unsigned col, reg_idx & result, bool reuse, instruction_block & acc);
+        void make_duplicate_column(reg_idx src, unsigned col, reg_idx & result, bool reuse, execution_context & ctx);
         
-        void ensure_predicate_loaded(func_decl * pred, instruction_block & acc);
+        void ensure_predicate_loaded(func_decl * pred, execution_context & ctx);
 
         /**
            \brief For rule \c r with two positive uninterpreted predicates put into \c res indexes of 
@@ -226,39 +222,40 @@ namespace datalog {
           const svector<reg_idx> & pos_tail_regs, 
           const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
           expr_ref_vector & single_res_expr,
-          bool & dealloc, instruction_block & acc);
+          bool & dealloc, execution_context & ctx);
 
         /**
            \brief Into \c acc add instructions that will add new facts following from the rule into 
            \c head_reg, and add the facts that were not in \c head_reg before into \c delta_reg.
         */
         void compile_rule_evaluation_run(rule * r, reg_idx head_reg, const reg_idx * tail_regs, 
-            reg_idx delta_reg, bool use_widening, execution_context & ctx, instruction_block & acc);
+            reg_idx delta_reg, bool use_widening, execution_context & ctx);
 
         void compile_rule_evaluation(rule * r, const pred2idx * input_deltas, reg_idx output_delta, 
-            bool use_widening, instruction_block & acc);
+            bool use_widening, execution_context & ctx);
 
         /**
            \brief Generate code to evaluate rules corresponding to predicates in \c head_preds.
            The rules are evaluated in the order their heads appear in the \c head_preds vector.
          */
         void compile_preds(const func_decl_vector & head_preds, const func_decl_set & widened_preds,
-            const pred2idx * input_deltas, const pred2idx & output_deltas, instruction_block & acc);
+            const pred2idx * input_deltas, const pred2idx & output_deltas, execution_context & ctx);
 
         /**
            \brief Generate code to evaluate predicates in a stratum based on their non-recursive rules.
          */
         void compile_preds_init(const func_decl_vector & head_preds, const func_decl_set & widened_preds,
-            const pred2idx * input_deltas, const pred2idx & output_deltas, instruction_block & acc);
+            const pred2idx * input_deltas, const pred2idx & output_deltas, execution_context & ctx);
 
+        bool control_is_empty(const svector<reg_idx> & controls, execution_context & ctx);
         void make_inloop_delta_transition(const pred2idx & global_head_deltas, 
-            const pred2idx & global_tail_deltas, const pred2idx & local_deltas, instruction_block & acc);
+            const pred2idx & global_tail_deltas, const pred2idx & local_deltas, execution_context & ctx);
         void compile_loop(const func_decl_vector & head_preds, const func_decl_set & widened_preds,
             const pred2idx & global_head_deltas, const pred2idx & global_tail_deltas, 
-            const pred2idx & local_deltas, instruction_block & acc);
+            const pred2idx & local_deltas, execution_context & ctx);
         void compile_dependent_rules(const func_decl_set & head_preds,
             const pred2idx * input_deltas, const pred2idx & output_deltas, 
-            bool add_saturation_marks, instruction_block & acc);
+            bool add_saturation_marks, execution_context & ctx);
 
         void detect_chains(const func_decl_set & preds, func_decl_vector & ordered_preds, 
             func_decl_set & global_deltas);
@@ -273,35 +270,34 @@ namespace datalog {
         */
         void compile_nonrecursive_stratum(const func_decl_set & preds, 
             const pred2idx * input_deltas, const pred2idx & output_deltas, 
-            bool add_saturation_marks, instruction_block & acc);
+            bool add_saturation_marks, execution_context & ctx);
 
         void compile_strats(const rule_stratifier & stratifier, 
             const pred2idx * input_deltas, const pred2idx & output_deltas, 
-            bool add_saturation_marks, instruction_block & acc);
+            bool add_saturation_marks, execution_context & ctx);
 
         bool all_saturated(const func_decl_set & preds) const;
 
         void reset();
 
-        explicit compiler(context & ctx, rule_set const & rules, instruction_block & top_level_code)
+        explicit compiler(context & ctx, rule_set const & rules, execution_context & ectx)
             : m_context(ctx), 
             m_rule_set(rules),
-            m_top_level_code(top_level_code),
-            m_instruction_observer(*this) {}
+            m_ectx(ectx) {}
+            //m_top_level_code(top_level_code),
+            //m_instruction_observer(*this) {}
         
         /**
            \brief Compile \c rules in to pseudocode.
 
            Instructions to load data and perform computations put into \c execution_code
         */
-        void do_compilation(instruction_block & execution_code, 
-            instruction_block & termination_code);
+        void do_compilation(execution_context & ectx);
 
     // TODO public:
 
-        static void compile(context & ctx, rule_set const & rules, instruction_block & execution_code, 
-                instruction_block & termination_code) {
-            compiler(ctx, rules, execution_code).do_compilation(execution_code, termination_code);
+        static void compile(context & ctx, rule_set const & rules, execution_context & ectx) {
+            compiler(ctx, rules, ectx).do_compilation(ectx);
         }
 
     };

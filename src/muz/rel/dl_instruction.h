@@ -263,15 +263,15 @@ namespace datalog {
         }
         void display_indented(execution_context const & ctx, std::ostream & out, std::string indentation) const;
 
-        static instruction * mk_load(ast_manager & m, func_decl * pred, reg_idx tgt);
+        static void mk_load(ast_manager & m, func_decl * pred, reg_idx tgt, execution_context & ctx);
         /**
            \brief The store operation moves the relation from a register into the context. The register
            is set to zero after the operation.
         */
-        static instruction * mk_store(ast_manager & m, func_decl * pred, reg_idx src);
-        static instruction * mk_dealloc(reg_idx reg); //maybe not necessary
-        static instruction * mk_clone(reg_idx from, reg_idx to);
-        static instruction * mk_move(reg_idx from, reg_idx to);
+        static void mk_store(ast_manager & m, func_decl * pred, reg_idx src, execution_context & ctx);
+        static void mk_dealloc(reg_idx reg, execution_context & ctx); //maybe not necessary
+        static void mk_clone(reg_idx from, reg_idx to, execution_context & ctx);
+        static void mk_move(reg_idx from, reg_idx to, execution_context & ctx);
 
         /**
            \brief Return instruction that performs \c body as long as at least one register
@@ -282,45 +282,48 @@ namespace datalog {
         static instruction * mk_while_loop(unsigned control_reg_cnt, const reg_idx * control_regs, 
             instruction_block * body);
 
-        static instruction * mk_join(reg_idx rel1, reg_idx rel2, unsigned col_cnt,
-            const unsigned * cols1, const unsigned * cols2, reg_idx result);
-        static instruction * mk_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
-            const vector<variable_intersection> & join_vars, reg_idx result_reg);
-        static instruction * mk_filter_equal(ast_manager & m, reg_idx reg, const relation_element & value, unsigned col);
-        static instruction * mk_filter_identical(reg_idx reg, unsigned col_cnt, const unsigned * identical_cols);
-        static instruction * mk_filter_interpreted(reg_idx reg, app_ref & condition);
-        static instruction * mk_filter_interpreted_and_project(reg_idx src, app_ref & condition,
-            unsigned col_cnt, const unsigned * removed_cols, reg_idx result);
-        static instruction * mk_union(reg_idx src, reg_idx tgt, reg_idx delta);
-        static instruction * mk_widen(reg_idx src, reg_idx tgt, reg_idx delta);
-        static instruction * mk_projection(reg_idx src, unsigned col_cnt, const unsigned * removed_cols, 
-            reg_idx tgt);
-        static instruction * mk_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt,
+        static void mk_join(reg_idx rel1, reg_idx rel2, unsigned col_cnt,
+            const unsigned * cols1, const unsigned * cols2, reg_idx result, execution_context & ctx);
+        static void mk_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
+            const vector<variable_intersection> & join_vars, reg_idx result_reg, execution_context & ctx);
+        static void mk_filter_equal(ast_manager & m, reg_idx reg, const relation_element & value,
+            unsigned col, execution_context & ctx);
+        static void mk_filter_identical(reg_idx reg, unsigned col_cnt,
+            const unsigned * identical_cols, execution_context & ctx);
+        static void mk_filter_interpreted(reg_idx reg, app_ref & condition, execution_context & ctx);
+        static void mk_filter_interpreted_and_project(reg_idx src, app_ref & condition,
+            unsigned col_cnt, const unsigned * removed_cols, reg_idx result, execution_context & ctx);
+        static void mk_union(reg_idx src, reg_idx tgt, reg_idx delta, execution_context & ctx);
+        static void mk_widen(reg_idx src, reg_idx tgt, reg_idx delta, execution_context & ctx);
+        static void mk_projection(reg_idx src, unsigned col_cnt, const unsigned * removed_cols,
+            reg_idx tgt, execution_context & ctx);
+        static void mk_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt,
             const unsigned * cols1, const unsigned * cols2, unsigned removed_col_cnt, 
-            const unsigned * removed_cols, reg_idx result);
-        static instruction * mk_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
-          const vector<variable_intersection> & join_vars, const vector<unsigned_vector> & removed_cols,
-          reg_idx result_reg);
-        static instruction * mk_rename(reg_idx src, unsigned cycle_len, const unsigned * permutation_cycle, 
-            reg_idx tgt);
-        static instruction * mk_filter_by_negation(reg_idx tgt, reg_idx neg_rel, unsigned col_cnt,
-            const unsigned * cols1, const unsigned * cols2);
-        static instruction * mk_select_equal_and_project(ast_manager & m, reg_idx src, 
-            const relation_element & value, unsigned col, reg_idx result);
+            const unsigned * removed_cols, reg_idx result, execution_context & ctx);
+        static void mk_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
+            const vector<variable_intersection> & join_vars, const vector<unsigned_vector> & removed_cols,
+            reg_idx result_reg, execution_context & ctx);
+        static void mk_rename(reg_idx src, unsigned cycle_len, const unsigned * permutation_cycle,
+            reg_idx tgt, execution_context & ctx);
+        static void mk_filter_by_negation(reg_idx tgt, reg_idx neg_rel, unsigned col_cnt,
+            const unsigned * cols1, const unsigned * cols2, execution_context & ctx);
+        static void mk_select_equal_and_project(ast_manager & m, reg_idx src, 
+            const relation_element & value, unsigned col, reg_idx result, execution_context & ctx);
         
-        static instruction * mk_unary_singleton(ast_manager & m, func_decl* pred, const relation_sort & s, const relation_element & val, reg_idx tgt);
-        static instruction * mk_total(const relation_signature & sig, func_decl* pred, reg_idx tgt);
+        static void mk_unary_singleton(ast_manager & m, func_decl* pred, const relation_sort & s,
+            const relation_element & val, reg_idx tgt, execution_context & ctx);
+        static void mk_total(const relation_signature & sig, func_decl* pred, reg_idx tgt, execution_context & ctx);
 
         /**
            \brief The mark_saturated instruction marks a relation as saturated, so that after
            next restart it does not have to be part of the saturation again.
          */
-        static instruction * mk_mark_saturated(ast_manager & m, func_decl * pred);
+        static void mk_mark_saturated(ast_manager & m, func_decl * pred, execution_context & ctx);
 
         static instruction * mk_assert_signature(const relation_signature & s, reg_idx tgt);
 
-        static instruction * mk_exec(rule * r, reg_idx head_reg, const reg_idx * tail_regs,
-          reg_idx delta_reg, bool use_widening);
+        static void mk_exec(rule * r, reg_idx head_reg, const reg_idx * tail_regs,
+            reg_idx delta_reg, bool use_widening, execution_context & ctx);
 
 
         void collect_statistics(statistics& st) const;

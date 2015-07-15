@@ -233,12 +233,16 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_load(ast_manager & m, func_decl * pred, reg_idx tgt) {
-        return alloc(instr_io, false, func_decl_ref(pred, m), tgt);
+    void instruction::mk_load(ast_manager & m, func_decl * pred, reg_idx tgt, execution_context & ctx) {
+        instruction * instr = alloc(instr_io, false, func_decl_ref(pred, m), tgt);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
-    instruction * instruction::mk_store(ast_manager & m, func_decl * pred, reg_idx src) {
-        return alloc(instr_io, true, func_decl_ref(pred, m), src);
+    void instruction::mk_store(ast_manager & m, func_decl * pred, reg_idx src, execution_context & ctx) {
+        instruction * instr = alloc(instr_io, true, func_decl_ref(pred, m), src);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -259,8 +263,10 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_dealloc(reg_idx reg) {
-        return alloc(instr_dealloc, reg);
+    void instruction::mk_dealloc(reg_idx reg, execution_context & ctx) {
+        instruction * instr = alloc(instr_dealloc, reg);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
     class instr_clone_move : public instruction {
@@ -294,11 +300,15 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_clone(reg_idx from, reg_idx to) {
-        return alloc(instr_clone_move, true, from, to);
+    void instruction::mk_clone(reg_idx from, reg_idx to, execution_context & ctx) {
+        instruction * instr = alloc(instr_clone_move, true, from, to);
+        instr->perform(ctx);
+        dealloc(instr);
     }
-    instruction * instruction::mk_move(reg_idx from, reg_idx to) {
-        return alloc(instr_clone_move, false, from, to);
+    void instruction::mk_move(reg_idx from, reg_idx to, execution_context & ctx) {
+        instruction * instr = alloc(instr_clone_move, false, from, to);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -462,9 +472,11 @@ namespace datalog {
       }
     };
 
-    instruction * instruction::mk_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
-      const vector<variable_intersection> & join_vars, reg_idx result_reg) {
-      return alloc(instr_multiary_join, tail_regs, pt_len, join_vars, result_reg);
+    void instruction::mk_multiary_join(const reg_idx * tail_regs, unsigned pt_len,
+      const vector<variable_intersection> & join_vars, reg_idx result_reg, execution_context & ctx) {
+      instruction * instr = alloc(instr_multiary_join, tail_regs, pt_len, join_vars, result_reg);
+      instr->perform(ctx);
+      dealloc(instr);
     }
 
 
@@ -532,9 +544,11 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_join(reg_idx rel1, reg_idx rel2, unsigned col_cnt,
-            const unsigned * cols1, const unsigned * cols2, reg_idx result) {
-        return alloc(instr_join, rel1, rel2, col_cnt, cols1, cols2, result);
+    void instruction::mk_join(reg_idx rel1, reg_idx rel2, unsigned col_cnt,
+        const unsigned * cols1, const unsigned * cols2, reg_idx result, execution_context & ctx) {
+        instruction * instr = alloc(instr_join, rel1, rel2, col_cnt, cols1, cols2, result);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
     class instr_filter_equal : public instruction {
@@ -580,9 +594,11 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_filter_equal(ast_manager & m, reg_idx reg, const relation_element & value, 
-            unsigned col) {
-        return alloc(instr_filter_equal, m, reg, value, col);
+    void instruction::mk_filter_equal(ast_manager & m, reg_idx reg, const relation_element & value, 
+        unsigned col, execution_context & ctx) {
+        instruction * instr = alloc(instr_filter_equal, m, reg, value, col);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -627,8 +643,11 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_filter_identical(reg_idx reg, unsigned col_cnt, const unsigned * identical_cols) {
-        return alloc(instr_filter_identical, reg, col_cnt, identical_cols);
+    void instruction::mk_filter_identical(reg_idx reg, unsigned col_cnt,
+        const unsigned * identical_cols, execution_context & ctx) {
+        instruction * instr = alloc(instr_filter_identical, reg, col_cnt, identical_cols);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -678,8 +697,10 @@ namespace datalog {
 
     };
 
-    instruction * instruction::mk_filter_interpreted(reg_idx reg, app_ref & condition) {
-        return alloc(instr_filter_interpreted, reg, condition);
+    void instruction::mk_filter_interpreted(reg_idx reg, app_ref & condition, execution_context & ctx) {
+        instruction * instr = alloc(instr_filter_interpreted, reg, condition);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
     class instr_filter_interpreted_and_project : public instruction {
@@ -740,9 +761,12 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_filter_interpreted_and_project(reg_idx reg, app_ref & condition,
-        unsigned col_cnt, const unsigned * removed_cols, reg_idx result) {
-        return alloc(instr_filter_interpreted_and_project, reg, condition, col_cnt, removed_cols, result);
+    void instruction::mk_filter_interpreted_and_project(reg_idx reg, app_ref & condition,
+        unsigned col_cnt, const unsigned * removed_cols, reg_idx result, execution_context & ctx) {
+        instruction * instr = alloc(instr_filter_interpreted_and_project, reg, condition, col_cnt,
+            removed_cols, result);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -849,12 +873,16 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_union(reg_idx src, reg_idx tgt, reg_idx delta) {
-        return alloc(instr_union, src, tgt, delta, false);
+    void instruction::mk_union(reg_idx src, reg_idx tgt, reg_idx delta, execution_context & ctx) {
+        instruction * instr = alloc(instr_union, src, tgt, delta, false);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
-    instruction * instruction::mk_widen(reg_idx src, reg_idx tgt, reg_idx delta) {
-        return alloc(instr_union, src, tgt, delta, true);
+    void instruction::mk_widen(reg_idx src, reg_idx tgt, reg_idx delta, execution_context & ctx) {
+        instruction * instr = alloc(instr_union, src, tgt, delta, true);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -911,13 +939,17 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_projection(reg_idx src, unsigned col_cnt, const unsigned * removed_cols, 
-            reg_idx tgt) {
-        return alloc(instr_project_rename, true, src, col_cnt, removed_cols, tgt);
+    void instruction::mk_projection(reg_idx src, unsigned col_cnt, const unsigned * removed_cols, 
+        reg_idx tgt, execution_context & ctx) {
+        instruction * instr = alloc(instr_project_rename, true, src, col_cnt, removed_cols, tgt);
+        instr->perform(ctx);
+        dealloc(instr);
     }
-    instruction * instruction::mk_rename(reg_idx src, unsigned cycle_len, const unsigned * permutation_cycle, 
-            reg_idx tgt) {
-        return alloc(instr_project_rename, false, src, cycle_len, permutation_cycle, tgt);
+    void instruction::mk_rename(reg_idx src, unsigned cycle_len, const unsigned * permutation_cycle, 
+        reg_idx tgt, execution_context & ctx) {
+        instruction * instr = alloc(instr_project_rename, false, src, cycle_len, permutation_cycle, tgt);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
     class instr_multiary_join_project : public instruction {
@@ -1031,10 +1063,12 @@ namespace datalog {
       }
     };
 
-    instruction * instruction::mk_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
+    void instruction::mk_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
       const vector<variable_intersection> & join_vars, const vector<unsigned_vector> & removed_cols,
-      reg_idx result_reg) {
-      return alloc(instr_multiary_join_project, tail_regs, pt_len, join_vars, removed_cols, result_reg);
+      reg_idx result_reg, execution_context & ctx) {
+      instruction * instr = alloc(instr_multiary_join_project, tail_regs, pt_len, join_vars, removed_cols, result_reg);
+      instr->perform(ctx);
+      dealloc(instr);
     }
 
     class instr_join_project : public instruction {
@@ -1103,11 +1137,13 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt,
+    void instruction::mk_join_project(reg_idx rel1, reg_idx rel2, unsigned joined_col_cnt,
         const unsigned * cols1, const unsigned * cols2, unsigned removed_col_cnt, 
-        const unsigned * removed_cols, reg_idx result) {
-            return alloc(instr_join_project, rel1, rel2, joined_col_cnt, cols1, cols2, removed_col_cnt,
-                removed_cols, result);
+        const unsigned * removed_cols, reg_idx result, execution_context & ctx) {
+        instruction * instr = alloc(instr_join_project, rel1, rel2, joined_col_cnt, cols1, cols2, removed_col_cnt,
+            removed_cols, result);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -1163,9 +1199,11 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_select_equal_and_project(ast_manager & m, reg_idx src, 
-            const relation_element & value, unsigned col, reg_idx result) {
-        return alloc(instr_select_equal_and_project, m, src, value, col, result);
+    void instruction::mk_select_equal_and_project(ast_manager & m, reg_idx src, 
+        const relation_element & value, unsigned col, reg_idx result, execution_context & ctx) {
+        instruction * instr = alloc(instr_select_equal_and_project, m, src, value, col, result);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -1220,9 +1258,11 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_filter_by_negation(reg_idx tgt, reg_idx neg_rel, unsigned col_cnt,
-            const unsigned * cols1, const unsigned * cols2) {
-        return alloc(instr_filter_by_negation, tgt, neg_rel, col_cnt, cols1, cols2);
+    void instruction::mk_filter_by_negation(reg_idx tgt, reg_idx neg_rel, unsigned col_cnt,
+        const unsigned * cols1, const unsigned * cols2, execution_context & ctx) {
+        instruction * instr = alloc(instr_filter_by_negation, tgt, neg_rel, col_cnt, cols1, cols2);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
         
@@ -1261,9 +1301,11 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_unary_singleton(ast_manager & m, func_decl* head_pred, const relation_sort & s, 
-            const relation_element & val, reg_idx tgt) {
-        return alloc(instr_mk_unary_singleton, m, head_pred, s, val, tgt);
+    void instruction::mk_unary_singleton(ast_manager & m, func_decl* head_pred, const relation_sort & s, 
+        const relation_element & val, reg_idx tgt, execution_context & ctx) {
+        instruction * instr = alloc(instr_mk_unary_singleton, m, head_pred, s, val, tgt);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
 
@@ -1293,8 +1335,11 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_total(const relation_signature & sig, func_decl* pred, reg_idx tgt) {
-        return alloc(instr_mk_total, sig, pred, tgt);
+    void instruction::mk_total(const relation_signature & sig, func_decl* pred, reg_idx tgt, 
+        execution_context & ctx) {
+        instruction * instr = alloc(instr_mk_total, sig, pred, tgt);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
     class instr_mark_saturated : public instruction {
@@ -1314,8 +1359,10 @@ namespace datalog {
         }
     };
 
-    instruction * instruction::mk_mark_saturated(ast_manager & m, func_decl * pred) {
-        return alloc(instr_mark_saturated, m, pred);
+    void instruction::mk_mark_saturated(ast_manager & m, func_decl * pred, execution_context & ctx) {
+        instruction * instr = alloc(instr_mark_saturated, m, pred);
+        instr->perform(ctx);
+        dealloc(instr);
     }
 
     class instr_assert_signature : public instruction {
@@ -1354,7 +1401,6 @@ namespace datalog {
       svector<reg_idx> tail_regs;
       reg_idx delta_reg;
       bool use_widening;
-      instruction_block acc;
     private:
 
       void apply_negative_predicate(expr_ref_vector & pos_expr, unsigned & pos_reg, unsigned neg_index, bool & dealloc, ast_manager & m, execution_context & ctx) {
@@ -1375,7 +1421,7 @@ namespace datalog {
           SASSERT(is_app(e));
           relation_sort arg_sort;
           g_compiler->m_context.get_rel_context()->get_rmanager().from_predicate(neg_pred, i, arg_sort);
-          g_compiler->make_add_constant_column(r->get_head()->get_decl(), pos_reg, arg_sort, to_app(e), pos_reg, dealloc, ctx, acc);
+          g_compiler->make_add_constant_column(r->get_head()->get_decl(), pos_reg, arg_sort, to_app(e), pos_reg, dealloc, ctx);
 
           t_cols.push_back(pos_expr.size());
           neg_cols.push_back(i);
@@ -1383,8 +1429,7 @@ namespace datalog {
         }
         SASSERT(t_cols.size() == neg_cols.size());
         reg_idx neg_reg = g_compiler->m_pred_regs.find(neg_pred);
-        acc.push_back(instruction::mk_filter_by_negation(pos_reg, neg_reg, t_cols.size(),
-          t_cols.c_ptr(), neg_cols.c_ptr()));
+        instruction::mk_filter_by_negation(pos_reg, neg_reg, t_cols.size(), t_cols.c_ptr(), neg_cols.c_ptr(), ctx);
         dealloc = true;
       }
 
@@ -1395,7 +1440,7 @@ namespace datalog {
         // lengths in original rule (DON'T USE res_expr.size())
         if (!remaining_neg_tail.empty() && res_reg == execution_context::void_register) {
           relation_signature empty_signature;
-          g_compiler->make_full_relation(head_pred, empty_signature, res_reg, ctx, acc);
+          g_compiler->make_full_relation(head_pred, empty_signature, res_reg, ctx);
         }
 
         //enforce negative predicates
@@ -1418,7 +1463,7 @@ namespace datalog {
             SASSERT(is_app(e));
             relation_sort arg_sort;
             g_compiler->m_context.get_rel_context()->get_rmanager().from_predicate(neg_pred, i, arg_sort);
-            g_compiler->make_add_constant_column(head_pred, res_reg, arg_sort, to_app(e), res_reg, dealloc, ctx, acc);
+            g_compiler->make_add_constant_column(head_pred, res_reg, arg_sort, to_app(e), res_reg, dealloc, ctx);
 
             t_cols.push_back(res_expr.size());
             neg_cols.push_back(i);
@@ -1428,9 +1473,9 @@ namespace datalog {
 
           reg_idx neg_reg = g_compiler->m_pred_regs.find(neg_pred);
           if (!dealloc)
-            g_compiler->make_clone(res_reg, res_reg, acc);
-          acc.push_back(instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
-            t_cols.c_ptr(), neg_cols.c_ptr()));
+            g_compiler->make_clone(res_reg, res_reg, ctx);
+          instruction::mk_filter_by_negation(res_reg, neg_reg, t_cols.size(),
+            t_cols.c_ptr(), neg_cols.c_ptr(), ctx);
           dealloc = true;
         }
       }
@@ -1456,7 +1501,7 @@ namespace datalog {
           it != end; ++it, ++i) {
           expr_ref_vector &res_expr = *it;
           reg_idx &res_reg = res_regs[i];
-          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[i], dealloc, ctx, acc);
+          g_compiler->add_unbound_columns_for_negation(r, head_pred, res_reg, res_expr, var_indexes[i], dealloc, ctx);
           make_remaining_negation(head_pred, remaining_neg_tail, res_expr, res_reg, dealloc, ctx);
         }
         //}
@@ -1501,7 +1546,7 @@ namespace datalog {
             // we have an unbound variable, so we add an unbound column for it
             relation_sort unbound_sort = g_compiler->m_free_vars[v];
 
-            g_compiler->make_add_unbound_column(r, 0, head_pred, res_reg, unbound_sort, res_reg, dealloc, ctx, acc);
+            g_compiler->make_add_unbound_column(r, 0, head_pred, res_reg, unbound_sort, res_reg, dealloc, ctx);
             src_col = res_expr.size();
             res_expr.push_back(m.mk_var(v, unbound_sort));
 
@@ -1610,7 +1655,7 @@ namespace datalog {
         //if (remove_columns.empty()) {
           //if (!dealloc)
           //  g_compiler->make_clone(res_reg, res_reg, acc);
-        acc.push_back(instruction::mk_filter_interpreted(pos_index, app_renamed));
+        instruction::mk_filter_interpreted(pos_index, app_renamed, ctx);
         //}
         //else {
         //  std::sort(remove_columns.begin(), remove_columns.end());
@@ -1637,12 +1682,12 @@ namespace datalog {
         app_ref app_renamed(to_app(renamed), m);
         if (remove_columns.empty()) {
           if (!dealloc)
-            g_compiler->make_clone(res_reg, res_reg, acc);
-          acc.push_back(instruction::mk_filter_interpreted(res_reg, app_renamed));
+            g_compiler->make_clone(res_reg, res_reg, ctx);
+          instruction::mk_filter_interpreted(res_reg, app_renamed, ctx);
         }
         else {
           std::sort(remove_columns.begin(), remove_columns.end());
-          g_compiler->make_filter_interpreted_and_project(res_reg, app_renamed, remove_columns, res_reg, dealloc, acc);
+          g_compiler->make_filter_interpreted_and_project(res_reg, app_renamed, remove_columns, res_reg, dealloc, ctx);
         }
 
       }
@@ -1702,7 +1747,7 @@ namespace datalog {
         int2ints single_var_indexes;
 
         g_compiler->compile_join_project(r, remaining_negated_tail, remaining_interpreted_tail, res_preds, res_regs, m, pt_len,
-          belongs_to, single_res, single_res_expr, dealloc, acc);
+          belongs_to, single_res, single_res_expr, dealloc, ctx);
 
         res_preds.reset();
         res_regs.reset();
@@ -1718,8 +1763,8 @@ namespace datalog {
               SASSERT(g_compiler->m_context.get_decl_util().is_numeral_ext(exp));
               relation_element value = to_app(exp);
               if (!dealloc)
-                g_compiler->make_clone(single_res, single_res, acc);
-              acc.push_back(instruction::mk_filter_equal(g_compiler->m_context.get_manager(), single_res, value, i));
+                g_compiler->make_clone(single_res, single_res, ctx);
+              instruction::mk_filter_equal(g_compiler->m_context.get_manager(), single_res, value, i, ctx);
               dealloc = true;
             }
             else {
@@ -1770,8 +1815,8 @@ namespace datalog {
               continue;
           }
           if (!dealloc)
-            g_compiler->make_clone(single_res, single_res, acc);
-          acc.push_back(instruction::mk_filter_identical(single_res, indexes.size(), indexes.c_ptr()));
+            g_compiler->make_clone(single_res, single_res, ctx);
+          instruction::mk_filter_identical(single_res, indexes.size(), indexes.c_ptr(), ctx);
           dealloc = true;
         }
 
@@ -1830,12 +1875,12 @@ namespace datalog {
 
           SASSERT(pos_tail_regs.size() > 0);
           reg_idx new_head_reg;
-          g_compiler->make_assembling_code(r, head_pred, pos_tail_regs[0], head_acis, new_head_reg, dealloc, ctx, acc);
+          g_compiler->make_assembling_code(r, head_pred, pos_tail_regs[0], head_acis, new_head_reg, dealloc, ctx);
 
           //update the head relation
-          g_compiler->make_union(new_head_reg, head_reg, delta_reg, use_widening, acc);
+          g_compiler->make_union(new_head_reg, head_reg, delta_reg, use_widening, ctx);
           if (dealloc)
-            g_compiler->make_dealloc_non_void(new_head_reg, acc);
+            g_compiler->make_dealloc_non_void(new_head_reg, ctx);
         }
       }
 
@@ -1977,7 +2022,7 @@ namespace datalog {
                                      << "before neg " << ctx.reg(pos_reg) << " #rows " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               // only need to clone if reg is in "original" positive tail
               if (!aux_regs.contains(pos_reg)) {
-                g_compiler->make_clone(pos_reg, pos_reg, acc); // FIXME: maybe reuse aux_regs
+                g_compiler->make_clone(pos_reg, pos_reg, ctx); // FIXME: maybe reuse aux_regs
                 aux_regs.insert(pos_reg);
               }
               apply_negative_predicate(pos_tail_preds[pos_index], pos_reg, neg_index, dealloc, m, ctx);
@@ -2012,7 +2057,7 @@ namespace datalog {
                                      << "before filter " << ctx.reg(pos_reg) << " #rows " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               // only need to clone if reg is in "original" positive tail
               if (!aux_regs.contains(pos_reg)) {
-                g_compiler->make_clone(pos_reg, pos_reg, acc); // FIXME: maybe reuse aux_regs
+                g_compiler->make_clone(pos_reg, pos_reg, ctx); // FIXME: maybe reuse aux_regs
                 aux_regs.insert(pos_reg);
               }
               apply_filter(pos_tail_preds[pos_index], interpreted_index, pos_reg, dealloc, m, ctx);
@@ -2044,14 +2089,14 @@ namespace datalog {
         TRACE("dl_stats", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
         TRACE("dl_query_plan", tout << "RULE\n"; r->display(g_compiler->m_context, tout););
         // caching
-        if (acc.num_instructions() != 0) {
-          acc.reset(); // recomputing every time
+        //if (acc.num_instructions() != 0) {
+        //  acc.reset(); // recomputing every time
         //  TRACE("dl", tout << "cache CODE\n"; acc.display(ctx, tout););
         //  acc.perform(ctx);
         //  return true;
-        }
+        //}
         ast_manager & m = g_compiler->m_context.get_manager();
-        g_compiler->m_instruction_observer.start_rule(r);
+        //g_compiler->m_instruction_observer.start_rule(r);
 
         const app * h = r->get_head();
         unsigned head_len = h->get_num_args();
@@ -2130,7 +2175,7 @@ namespace datalog {
         // clean up tmp regs for negation/filter before join
         int_set::iterator tr_it = aux_regs.begin(), tr_end = aux_regs.end();
         for (; tr_it != tr_end; ++tr_it) {
-          g_compiler->make_dealloc_non_void(*tr_it, acc);
+          g_compiler->make_dealloc_non_void(*tr_it, ctx);
         }
 
 
@@ -2142,10 +2187,10 @@ namespace datalog {
         do_assemble(head_len, h, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail_preds, pos_tail_regs, ctx);
 
         //    finish:
-        g_compiler->m_instruction_observer.finish_rule();
+        //g_compiler->m_instruction_observer.finish_rule();
         
-        TRACE("dl", tout << "non-cache CODE\n"; acc.display(ctx, tout););
-        acc.perform(ctx);
+        //TRACE("dl", tout << "non-cache CODE\n"; acc.display(ctx, tout););
+        //acc.perform(ctx);
 
         return true;
       }
@@ -2157,9 +2202,11 @@ namespace datalog {
       }
     };
 
-    instruction * instruction::mk_exec(rule * r, reg_idx head_reg, const reg_idx * tail_regs,
-      reg_idx delta_reg, bool use_widening) {
-      return alloc(instr_exec, r, head_reg, tail_regs, delta_reg, use_widening);
+    void instruction::mk_exec(rule * r, reg_idx head_reg, const reg_idx * tail_regs,
+        reg_idx delta_reg, bool use_widening, execution_context & ctx) {
+      instruction * instr = alloc(instr_exec, r, head_reg, tail_regs, delta_reg, use_widening);
+      instr->perform(ctx);
+      dealloc(instr);
     }
 
 

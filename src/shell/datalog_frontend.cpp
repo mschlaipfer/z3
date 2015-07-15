@@ -187,8 +187,8 @@ unsigned read_datalog(char const * file) {
         }
         do {
             ctx.get_rel_context()->transform_rules();
-
-            datalog::compiler::compile(ctx, ctx.get_rules(), rules_code, termination_code);
+            SASSERT(false); // not supported right now
+            //datalog::compiler::compile(ctx, ctx.get_rules(), rules_code, termination_code);
             
             TRACE("dl_compiler", rules_code.display(ex_ctx, tout););
             
