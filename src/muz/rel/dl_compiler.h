@@ -141,22 +141,15 @@ namespace datalog {
         */
         void get_fresh_registers(const func_decl_set & preds,  pred2idx & regs);
 
-        void make_join(reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result, 
+        void make_join(bool empty, reg_idx t1, reg_idx t2, const variable_intersection & vars, reg_idx & result,
             bool reuse_t1, execution_context & ctx);
-        void make_join_project(reg_idx t1, reg_idx t2, const variable_intersection & vars, 
+        void make_join_project(bool empty, reg_idx t1, reg_idx t2, const variable_intersection & vars,
             const unsigned_vector & removed_cols, reg_idx & result, bool reuse_t1, execution_context & ctx);
         void make_filter_interpreted_and_project(reg_idx src, app_ref & cond,
             const unsigned_vector & removed_cols, reg_idx & result, bool reuse, execution_context & ctx);
         void make_select_equal_and_project(reg_idx src, const relation_element val, unsigned col,
             reg_idx & result, bool reuse, execution_context & ctx);
 
-        void make_multiary_join(const reg_idx * tail_regs, unsigned pt_len, 
-            const vector<variable_intersection> & vars,
-            reg_idx & result, bool reuse_t1, execution_context & ctx);
-        void make_multiary_join_project(const reg_idx * tail_regs, unsigned pt_len,
-            const vector<variable_intersection> & vars, 
-            const vector<unsigned_vector> & removed_cols,
-            reg_idx & result, bool reuse_t1, execution_context & ctx);
         /**
            \brief Create add an union or widen operation and put it into \c acc.
         */
@@ -202,17 +195,17 @@ namespace datalog {
            Used to get input for the "project" part of join-project.
          */
         void get_local_indexes_for_projection(rule *r,
-            const unsigned_vector & remaining_negated_tail,
-            const unsigned_vector & remaining_interpreted_tail,
+            const int_set & remaining_negated_tail,
+            const int_set & remaining_interpreted_tail,
             const vector<expr_ref_vector> & pos_tail_preds,
             const expr_ref_vector & intm_result, unsigned tail_offset,
             unsigned_vector & res);
         void get_local_indexes_for_projection(const expr_ref_vector & t, var_counter & globals, unsigned ofs,
             unsigned_vector & res);
 
-        void compile_join_project(rule *r, 
-            const unsigned_vector & remaining_negated_tail,
-            const unsigned_vector & remaining_interpreted_tail,
+        void compile_join_project(rule *r, bool & empty,
+            const int_set & remaining_negated_tail,
+            const int_set & remaining_interpreted_tail,
             const vector<expr_ref_vector> & pos_tail_preds,
             const svector<reg_idx> & pos_tail_regs, 
             const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
