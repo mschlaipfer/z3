@@ -1178,7 +1178,7 @@ namespace datalog {
       bool use_widening;
     private:
 
-      void apply_negative_predicate(expr_ref_vector & pos_expr, unsigned & pos_reg, unsigned neg_index, bool & dealloc, ast_manager & m, execution_context & ctx) {
+      void apply_negative_predicate(expr_ref_vector & pos_expr, reg_idx & pos_reg, unsigned neg_index, bool & dealloc, ast_manager & m, execution_context & ctx) {
         //enforce negative predicate
         app * neg_app = r->get_tail(neg_index);
         func_decl * neg_pred = neg_app->get_decl();
@@ -1363,7 +1363,7 @@ namespace datalog {
         }
       }
 
-      void apply_filter(expr_ref_vector & pos_expr, unsigned interpreted_index, reg_idx &pos_index, bool &dealloc, ast_manager & m, execution_context & ctx) {
+      void apply_filter(expr_ref_vector & pos_expr, reg_idx &pos_index, unsigned interpreted_index, bool &dealloc, ast_manager & m, execution_context & ctx) {
 
         expr_ref_vector binding(m);
 
@@ -1458,12 +1458,255 @@ namespace datalog {
           }
         }
       }
-      
+
+      /**
+      \brief For rule \c r with two positive uninterpreted predicates put into \c res indexes of
+      local variables in a table that results from join of the two positive predicates.
+
+      Used to get input for the "project" part of join-project.
+      */
+      void get_local_indexes_for_projection(const expr_ref_vector & t, var_counter & globals, unsigned ofs,
+          unsigned_vector & res) {
+          // TODO: this can be optimized to avoid renames in some cases
+          unsigned n = t.size();
+          for (unsigned i = 0; i < n; i++) {
+              expr * e = t.get(i);
+              if (is_var(e) && globals.get(to_var(e)->get_idx()) > 0) {
+                  globals.update(to_var(e)->get_idx(), -1);
+                  res.push_back(i + ofs);
+              }
+          }
+      }
+
+      void get_local_indexes_for_projection(rule *r,
+          const int_set & remaining_negated_tail,
+          const int_set & remaining_interpreted_tail,
+          const vector<expr_ref_vector> & pos_tail_preds,
+          const expr_ref_vector & intm_result,
+          unsigned tail_offset, unsigned_vector & res) {
+          rule_counter counter;
+          // leave one column copy per var in the head (avoids later duplication)
+          counter.count_vars(r->get_head(), -1);
+
+          // take rest of positive tail, interp & neg preds into account (at least 1 column copy if referenced)
+          unsigned n = r->get_tail_size();
+          if (n > tail_offset) {
+              rule_counter counter_tail;
+
+              for (unsigned i = tail_offset; i < pos_tail_preds.size(); ++i) { // rest of pos
+                  counter_tail.count_vars(pos_tail_preds[i]);
+              }
+              int_set::iterator neg_it = remaining_negated_tail.begin(), neg_end = remaining_negated_tail.end();
+              for (; neg_it != neg_end; ++neg_it) { // neg
+                  counter_tail.count_vars(r->get_tail(*neg_it));
+              }
+              int_set::iterator int_it = remaining_interpreted_tail.begin(), int_end = remaining_interpreted_tail.end();
+              for (; int_it != int_end; ++int_it) { // interpreted
+                  counter_tail.count_vars(r->get_tail(*int_it));
+              }
+
+              rule_counter::iterator I = counter_tail.begin(), E = counter_tail.end();
+              for (; I != E; ++I) {
+                  int& n = counter.get(I->m_key);
+                  if (n == 0) {
+                      n = -1;
+                  }
+              }
+          }
+
+          expr_ref_vector t2 = pos_tail_preds[tail_offset - 1];
+          counter.count_vars(intm_result);
+          counter.count_vars(t2);
+
+          get_local_indexes_for_projection(intm_result, counter, 0, res);
+          get_local_indexes_for_projection(t2, counter, intm_result.size(), res);
+      }
+
+      void compile_join_project(rule *r, bool & empty,
+          int_set & remaining_negated_tail,
+          int_set & remaining_interpreted_tail,
+          const vector<expr_ref_vector> & pos_tail_preds,
+          const svector<reg_idx> & pos_tail_regs,
+          ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
+          expr_ref_vector & single_res_expr,
+          bool & dealloc, execution_context & ctx) {
+
+
+          if (pt_len >= 2) {
+              // initialize intermediate result with first positive tail predicate
+
+              for (unsigned i = 0; i < pos_tail_preds[0].size(); ++i) {
+                  single_res_expr.push_back(pos_tail_preds[0].get(i));
+                  belongs_to.push_back(0);
+              }
+              reg_idx t1_reg = pos_tail_regs[0];
+              TRACE("dl_query_plan", tout << pos_tail_regs[0] << " sig size " << g_compiler->m_reg_signatures[pos_tail_regs[0]].size() << " expr size " << single_res_expr.size() << "\n";);
+              SASSERT(g_compiler->m_reg_signatures[pos_tail_regs[0]].size() == single_res_expr.size());
+              for (unsigned i = 1; i < pt_len; ++i) {
+                  reg_idx t2_reg = pos_tail_regs[i];
+                  expr_ref_vector a2 = pos_tail_preds[i];
+                  TRACE("dl_query_plan", tout << pos_tail_regs[i] << " sig size " << g_compiler->m_reg_signatures[pos_tail_regs[i]].size() << " expr size " << a2.size() << "\n";);
+                  SASSERT(g_compiler->m_reg_signatures[pos_tail_regs[i]].size() == a2.size());
+
+                  // TODO refactor into separate function
+                  // (i>1): t1_reg is intermediate
+                  // all the initial relations are already reduced by negations and filters ahead of time, 
+                  // here only intermediates are handled
+                  if (i > 1) {
+                      var_counter counter;
+                      counter.count_vars(single_res_expr);
+                      
+                      {
+                          unsigned_vector applied_neg_indexes;
+                          int_set::iterator rem_neg_it = remaining_negated_tail.begin(), rem_neg_end = remaining_negated_tail.end();
+                          for (; rem_neg_it != rem_neg_end; ++rem_neg_it) {
+
+                              bool is_subset = true;
+                              app * neg_candidate = r->get_tail(*rem_neg_it);
+                              unsigned n = neg_candidate->get_num_args();
+                              for (unsigned i = 0; i < n; i++) {
+                                  expr * e = neg_candidate->get_arg(i);
+                                  if (is_var(e) && counter.get(to_var(e)->get_idx()) <= 0) {
+                                      is_subset = false;
+                                      break;
+                                  }
+                              }
+
+                              if (is_subset) {
+                                  TRACE("dl_query_plan", tout << "interleaving with negative:\n" << "neg: " << mk_pp(r->get_tail(*rem_neg_it), m) << "\n";);
+                                  apply_negative_predicate(single_res_expr, t1_reg, *rem_neg_it, dealloc, m, ctx);
+                                  applied_neg_indexes.push_back(*rem_neg_it);
+                              }
+                          }
+                          unsigned_vector::const_iterator it = applied_neg_indexes.begin(), end = applied_neg_indexes.end();
+                          for (; it != end; ++it) {
+                              remaining_negated_tail.remove(*it);
+                          }
+                      }
+                      {
+                          unsigned_vector applied_int_indexes;
+                          int_set::iterator rem_int_it = remaining_interpreted_tail.begin(), rem_int_end = remaining_interpreted_tail.end();
+                          for (; rem_int_it != rem_int_end; ++rem_int_it) {
+                              bool is_subset = true;
+                              app * neg_candidate = r->get_tail(*rem_int_it);
+                              unsigned n = neg_candidate->get_num_args();
+                              for (unsigned i = 0; i < n; i++) {
+                                  expr * e = neg_candidate->get_arg(i);
+                                  if (is_var(e) && counter.get(to_var(e)->get_idx()) <= 0) {
+                                      is_subset = false;
+                                      break;
+                                  }
+                              }
+
+                              if (is_subset) {
+                                  TRACE("dl_query_plan", tout << "interleaving with filter:\n" << "filter: " << mk_pp(r->get_tail(*rem_int_it), m) << "\n";);
+                                  apply_filter(single_res_expr, t1_reg, *rem_int_it, dealloc, m, ctx);
+                                  applied_int_indexes.push_back(*rem_int_it);
+                              }
+                          }
+                          unsigned_vector::const_iterator it = applied_int_indexes.begin(), end = applied_int_indexes.end();
+                          for (; it != end; ++it) {
+                              remaining_interpreted_tail.remove(*it);
+                          }
+                      }
+                  }
+
+                  variable_intersection a1a2(g_compiler->m_context.get_manager());
+                  a1a2.populate(single_res_expr, a2);
+
+                  unsigned_vector curr_removed_cols;
+                  get_local_indexes_for_projection(r, remaining_negated_tail, remaining_interpreted_tail, pos_tail_preds, single_res_expr, i + 1, curr_removed_cols);
+
+                  if (curr_removed_cols.empty()) {
+                      g_compiler->make_join(empty, t1_reg, t2_reg, a1a2, single_res, (i > 1), ctx);
+                  }
+                  else {
+                      g_compiler->make_join_project(empty, t1_reg, t2_reg, a1a2, curr_removed_cols, single_res, (i > 1), ctx);
+                  }
+                  t1_reg = single_res;
+                  // No early exit of this loop even if relation becomes empty in join
+                  // in order to compute the correct result expression.
+                  // Subsequent joins exit early and are cheap.
+
+                  // update intermediate result
+                  expr_ref_vector updated_intm_result(g_compiler->m_context.get_manager());
+                  unsigned_vector updated_belongs_to;
+                  unsigned rem_index = 0;
+                  unsigned rem_sz = curr_removed_cols.size();
+                  unsigned intm_result_len = single_res_expr.size();
+                  for (unsigned j = 0; j < intm_result_len; j++) {
+                      SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= j);
+                      if (rem_index < rem_sz && curr_removed_cols[rem_index] == j) {
+                          rem_index++;
+                          continue;
+                      }
+                      updated_intm_result.push_back(single_res_expr.get(j));
+                      updated_belongs_to.push_back(belongs_to.get(j));
+                  }
+                  single_res_expr.reset();
+                  belongs_to.reset();
+                  expr_ref_vector::iterator it = updated_intm_result.begin(), end = updated_intm_result.end();
+                  for (unsigned j = 0; it != end; ++it, ++j) {
+                      single_res_expr.push_back(*it);
+                      belongs_to.push_back(updated_belongs_to.get(j));
+                  }
+                  unsigned a2len = a2.size();
+                  for (unsigned j = 0; j < a2len; j++) {
+                      SASSERT(rem_index == rem_sz || curr_removed_cols[rem_index] >= j + intm_result_len);
+                      if (rem_index < rem_sz && curr_removed_cols[rem_index] == j + intm_result_len) {
+                          rem_index++;
+                          continue;
+                      }
+                      single_res_expr.push_back(a2.get(j));
+                      belongs_to.push_back(i);
+                  }
+                  SASSERT(rem_index == rem_sz);
+
+              }
+          }
+          else if (pt_len == 1) {
+              expr_ref_vector a = pos_tail_preds[0];
+              single_res = pos_tail_regs[0];
+              dealloc = false;
+              TRACE("dl_query_plan", tout << "sig " << single_res << " size: " << g_compiler->m_reg_signatures[single_res].size() << " vs expr size " << a.size() << "\n";);
+              SASSERT(g_compiler->m_reg_signatures[single_res].size() == a.size());
+
+              unsigned n = a.size();
+              for (unsigned i = 0; i<n; i++) {
+                  expr * arg = a.get(i);
+                  if (is_app(arg)) {
+                      app * c = to_app(arg); //argument is a constant
+                      SASSERT(m.is_value(c));
+                      g_compiler->make_select_equal_and_project(single_res, c, single_res_expr.size(), single_res, dealloc, ctx);
+                      dealloc = true;
+                  }
+                  else {
+                      SASSERT(is_var(arg));
+                      single_res_expr.push_back(arg);
+                  }
+              }
+          }
+          else {
+              SASSERT(pt_len == 0);
+
+              if (pos_tail_regs.size() == 0) {
+                  single_res = execution_context::void_register;
+              }
+              else {
+                  single_res = pos_tail_regs[0]; // in this case we added a total_relation to pos_tail_regs
+                  for (unsigned i = 0; i < pos_tail_preds[0].size(); ++i) {
+                      single_res_expr.push_back(pos_tail_preds[0].get(i));
+                  }
+              }
+              dealloc = false;
+          }
+      }
+
       void do_join_project(bool & empty, unsigned pt_len, 
         func_decl * head_pred, vector<int2ints> & var_indexes,
         bool &dealloc, ast_manager & m, vector<expr_ref_vector> & res_preds, svector<reg_idx> &res_regs,
-        const int_set & remaining_negated_tail,
-        const int_set & remaining_interpreted_tail,
+        int_set & remaining_negated_tail,
+        int_set & remaining_interpreted_tail,
         execution_context & ctx) {
         // used for computing whether col equality needs to be established
         unsigned_vector belongs_to;
@@ -1473,7 +1716,7 @@ namespace datalog {
         expr_ref_vector single_res_expr(m);
         int2ints single_var_indexes;
 
-        g_compiler->compile_join_project(r, empty, remaining_negated_tail, remaining_interpreted_tail, res_preds, res_regs, m, pt_len,
+        compile_join_project(r, empty, remaining_negated_tail, remaining_interpreted_tail, res_preds, res_regs, m, pt_len,
           belongs_to, single_res, single_res_expr, dealloc, ctx);
 
         res_preds.reset();
@@ -1779,7 +2022,7 @@ namespace datalog {
                 g_compiler->make_clone(pos_reg, pos_reg, ctx); // FIXME: maybe reuse aux_regs
                 aux_regs.insert(pos_reg);
               }
-              apply_filter(pos_tail_preds[pos_index], interpreted_index, pos_reg, dealloc, m, ctx);
+              apply_filter(pos_tail_preds[pos_index], pos_reg, interpreted_index, dealloc, m, ctx);
               TRACE("dl_stats", tout << "after filter " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
             }
             interpreted_applications++;

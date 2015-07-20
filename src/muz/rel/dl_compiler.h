@@ -189,30 +189,6 @@ namespace datalog {
         void ensure_predicate_loaded(func_decl * pred, execution_context & ctx);
 
         /**
-           \brief For rule \c r with two positive uninterpreted predicates put into \c res indexes of 
-           local variables in a table that results from join of the two positive predicates.
-
-           Used to get input for the "project" part of join-project.
-         */
-        void get_local_indexes_for_projection(rule *r,
-            const int_set & remaining_negated_tail,
-            const int_set & remaining_interpreted_tail,
-            const vector<expr_ref_vector> & pos_tail_preds,
-            const expr_ref_vector & intm_result, unsigned tail_offset,
-            unsigned_vector & res);
-        void get_local_indexes_for_projection(const expr_ref_vector & t, var_counter & globals, unsigned ofs,
-            unsigned_vector & res);
-
-        void compile_join_project(rule *r, bool & empty,
-            const int_set & remaining_negated_tail,
-            const int_set & remaining_interpreted_tail,
-            const vector<expr_ref_vector> & pos_tail_preds,
-            const svector<reg_idx> & pos_tail_regs, 
-            const ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
-            expr_ref_vector & single_res_expr,
-            bool & dealloc, execution_context & ctx);
-
-        /**
            \brief Into \c acc add instructions that will add new facts following from the rule into 
            \c head_reg, and add the facts that were not in \c head_reg before into \c delta_reg.
         */
