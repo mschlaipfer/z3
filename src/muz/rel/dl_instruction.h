@@ -94,8 +94,6 @@ namespace datalog {
             unsigned m_filter_interp_project;
             unsigned m_filter_id;
             unsigned m_filter_eq;
-            unsigned m_multiary_join;
-            unsigned m_multiary_join_project;
             stats() { reset(); }
             void reset() { memset(this, 0, sizeof(*this)); }
         };
@@ -278,9 +276,10 @@ namespace datalog {
 
            The instruction object takes over the ownership of the \c body object.
         */
+        /*
         static instruction * mk_while_loop(unsigned control_reg_cnt, const reg_idx * control_regs, 
             instruction_block * body);
-
+        */
         static void mk_join(reg_idx rel1, reg_idx rel2, unsigned col_cnt,
             const unsigned * cols1, const unsigned * cols2, reg_idx result, execution_context & ctx);
         static void mk_filter_equal(ast_manager & m, reg_idx reg, const relation_element & value,
@@ -314,7 +313,7 @@ namespace datalog {
          */
         static void mk_mark_saturated(ast_manager & m, func_decl * pred, execution_context & ctx);
 
-        /* TODO currently not used
+        /* currently not used
         static instruction * mk_assert_signature(const relation_signature & s, reg_idx tgt);
         */
 
