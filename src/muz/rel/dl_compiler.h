@@ -180,8 +180,8 @@ namespace datalog {
         void make_full_relation(func_decl* pred, const relation_signature & sig, reg_idx & result, 
             execution_context & ctx);
 
-        void add_unbound_columns_for_negation(rule* compiled_rule, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr,
-            int2ints & var_indexes, 
+        void add_unbound_columns_for_negation(rule* compiled_rule, const int_set & remaining_neg_tail,
+            func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr, int2ints & var_indexes, 
             bool & dealloc, execution_context & ctx);
         
         void make_duplicate_column(reg_idx src, unsigned col, reg_idx & result, bool reuse, execution_context & ctx);

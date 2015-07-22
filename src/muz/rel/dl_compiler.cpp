@@ -405,26 +405,22 @@ namespace datalog {
         result = curr;
     }
     
-    void compiler::add_unbound_columns_for_negation(rule* r, func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr,
-      int2ints & var_indexes,
+    void compiler::add_unbound_columns_for_negation(rule* r, const int_set & remaining_neg_tail, 
+     func_decl* pred, reg_idx& single_res, expr_ref_vector& single_res_expr, int2ints & var_indexes,
       bool & dealloc, execution_context & ctx) {
         uint_set pos_vars;
         u_map<expr*> neg_vars;
         ast_manager& m = m_context.get_manager();
-        unsigned pt_len = r->get_positive_tail_size();
-        unsigned ut_len = r->get_uninterpreted_tail_size();
 
         // no negated predicates
-        if (pt_len == ut_len)
+        if (remaining_neg_tail.empty()) {
             return;
+        }
 
         // populate negative variables:
-        for (unsigned i = pt_len; i < ut_len; ++i) {
-        #if 0
-            if (!apply_now.contains(i))
-                continue;
-        #endif
-            app * neg_tail = r->get_tail(i);
+        int_set::iterator rem_it = remaining_neg_tail.begin(), rem_end = remaining_neg_tail.end();
+        for (; rem_it != rem_end; ++rem_it) {
+            app * neg_tail = r->get_tail(*rem_it);
             unsigned neg_len = neg_tail->get_num_args();
             for (unsigned j = 0; j < neg_len; ++j) {
                 expr * e = neg_tail->get_arg(j);
