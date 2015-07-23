@@ -1180,10 +1180,14 @@ namespace datalog {
       reg_idx delta_reg;
       bool use_widening;
 
-      typedef struct tail_data {
+      class tail_data {
+      public:
           expr_ref_vector expr;
           reg_idx         reg;
-      } tail_data;
+
+          tail_data(expr_ref_vector expr, reg_idx reg) : expr(expr), reg(reg) {};
+
+      };
 
     private:
 
@@ -1445,7 +1449,7 @@ namespace datalog {
       void get_local_indexes_for_projection(rule *r,
           const int_set & remaining_negated_tail,
           const int_set & remaining_interpreted_tail,
-          const vector<tail_data> & pos_tail,
+          const ptr_vector<tail_data> & pos_tail,
           const expr_ref_vector & intm_result,
           unsigned tail_offset, unsigned_vector & res) {
           rule_counter counter;
@@ -1458,7 +1462,7 @@ namespace datalog {
               rule_counter counter_tail;
 
               for (unsigned i = tail_offset; i < pos_tail.size(); ++i) { // rest of pos
-                  counter_tail.count_vars(pos_tail[i].expr);
+                  counter_tail.count_vars(pos_tail[i]->expr);
               }
               int_set::iterator neg_it = remaining_negated_tail.begin(), neg_end = remaining_negated_tail.end();
               for (; neg_it != neg_end; ++neg_it) { // neg
@@ -1478,7 +1482,7 @@ namespace datalog {
               }
           }
 
-          expr_ref_vector t2 = pos_tail[tail_offset - 1].expr;
+          expr_ref_vector t2 = pos_tail[tail_offset - 1]->expr;
           counter.count_vars(intm_result);
           counter.count_vars(t2);
 
@@ -1489,26 +1493,26 @@ namespace datalog {
       void compile_join_project(rule *r, bool & empty,
           int_set & remaining_negated_tail,
           int_set & remaining_interpreted_tail,
-          const vector<tail_data> & pos_tail,
+          const ptr_vector<tail_data> & pos_tail,
           ast_manager & m, unsigned pt_len, unsigned_vector & belongs_to, reg_idx & single_res,
           expr_ref_vector & single_res_expr,
           bool & dealloc, execution_context & ctx) {
 
           if (pt_len >= 2) {
               // initialize intermediate result with first positive tail predicate
-              for (unsigned i = 0; i < pos_tail[0].expr.size(); ++i) {
-                  single_res_expr.push_back(pos_tail[0].expr.get(i));
+              for (unsigned i = 0; i < pos_tail[0]->expr.size(); ++i) {
+                  single_res_expr.push_back(pos_tail[0]->expr.get(i));
                   belongs_to.push_back(0);
               }
-              reg_idx t1_reg = pos_tail[0].reg;
-              TRACE("dl_query_plan", tout << pos_tail[0].reg << " sig size " << g_compiler->m_reg_signatures[pos_tail[0].reg].size() << " expr size " << single_res_expr.size() << "\n";);
-              SASSERT(g_compiler->m_reg_signatures[pos_tail[0].reg].size() == single_res_expr.size());
+              reg_idx t1_reg = pos_tail[0]->reg;
+              TRACE("dl_query_plan", print_container(pos_tail[0]->expr, tout); tout << pos_tail[0]->reg << " sig size " << g_compiler->m_reg_signatures[pos_tail[0]->reg].size() << " expr size " << single_res_expr.size() << "\n";);
+              SASSERT(g_compiler->m_reg_signatures[pos_tail[0]->reg].size() == single_res_expr.size());
               for (unsigned i = 1; i < pt_len; ++i) {
-                  reg_idx t2_reg = pos_tail[i].reg;
-                  expr_ref_vector a2 = pos_tail[i].expr;
-                  TRACE("dl_query_plan", tout << pos_tail[i].reg << " sig size " << g_compiler->m_reg_signatures[pos_tail[i].reg].size() << " expr size " << a2.size() << "\n";);
                   TRACE("dl_query_plan", tout << "iteration: " << i << "\n";);
-                  SASSERT(g_compiler->m_reg_signatures[pos_tail[i].reg].size() == a2.size());
+                  reg_idx t2_reg = pos_tail[i]->reg;
+                  expr_ref_vector a2 = pos_tail[i]->expr;
+                  TRACE("dl_query_plan", print_container(pos_tail[i]->expr, tout); tout << pos_tail[i]->reg << " sig size " << g_compiler->m_reg_signatures[pos_tail[i]->reg].size() << " expr size " << a2.size() << "\n";);
+                  SASSERT(g_compiler->m_reg_signatures[pos_tail[i]->reg].size() == a2.size());
 
                   // Applying negation and filter to internal node (intermediate result) of the degenerate
                   // join tree
@@ -1527,8 +1531,8 @@ namespace datalog {
                               bool is_subset = true;
                               app * neg_candidate = r->get_tail(*rem_neg_it);
                               unsigned n = neg_candidate->get_num_args();
-                              for (unsigned i = 0; i < n; i++) {
-                                  expr * e = neg_candidate->get_arg(i);
+                              for (unsigned j = 0; j < n; j++) {
+                                  expr * e = neg_candidate->get_arg(j);
                                   if (is_var(e) && counter.get(to_var(e)->get_idx()) < 1) {
                                       is_subset = false;
                                       break;
@@ -1536,10 +1540,17 @@ namespace datalog {
                               }
 
                               if (is_subset) {
-                                  TRACE("dl_interleaving", tout << "interleaving negative:\n" << "neg: " << mk_pp(r->get_tail(*rem_neg_it), m) << ", pos size before: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) << "\n";);
+                                  TRACE("dl_interleaving", tout << "interleaving negative:\n" << "neg: " << mk_pp(r->get_tail(*rem_neg_it), m) 
+                                      << ", t1_reg (intermediate) before: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) 
+                                      << ", t2_reg before: " << (ctx.reg(t2_reg) ? ctx.reg(t2_reg)->get_size_estimate_rows() : 0) << "\n";);
+                                  unsigned size_before = (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0);
                                   // Invariant: apply_negative_predicate does not add a variable to single_res_expr, therefore does not change there variable counter.
                                   apply_negative_predicate(false, single_res_expr, t1_reg, *rem_neg_it, dealloc, m, ctx);
-                                  TRACE("dl_interleaving", tout << "pos size after: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) << "\n";);
+                                  TRACE("dl_interleaving", tout << "t1_reg after: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) << "\n";);
+                                  unsigned size_after = (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0);
+                                  if (size_before - size_after != 0) {
+                                      TRACE("dl_interleaving", tout << "interleaving improvement (" << (size_before - size_after) << ") @ iteration " << i << "\n";);
+                                  }
                                   applied_neg_indexes.push_back(*rem_neg_it);
                               }
                           }
@@ -1563,9 +1574,16 @@ namespace datalog {
                               }
 
                               if (is_subset) {
-                                  TRACE("dl_interleaving", tout << "interleaving filter:\n" << "filter: " << mk_pp(int_candidate, m) << ", pos size before: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) << "\n";);
+                                  TRACE("dl_interleaving", tout << "interleaving filter:\n" << "filter: " << mk_pp(r->get_tail(*rem_int_it), m)
+                                      << ", t1_reg (intermediate) before: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0)
+                                      << ", t2_reg before: " << (ctx.reg(t2_reg) ? ctx.reg(t2_reg)->get_size_estimate_rows() : 0) << "\n";);
+                                  unsigned size_before = (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0);
                                   apply_filter(single_res_expr, t1_reg, *rem_int_it, dealloc, m, ctx);
-                                  TRACE("dl_interleaving", tout << "pos size after: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) << "\n";);
+                                  TRACE("dl_interleaving", tout << "t1_reg after: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) << "\n";);
+                                  unsigned size_after = (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0);
+                                  if (size_before - size_after != 0) {
+                                      TRACE("dl_interleaving", tout << "interleaving improvement (" << (size_before - size_after) << ") @ iteration " << i << "\n";);
+                                  }
                                   applied_int_indexes.push_back(*rem_int_it);
                               }
                           }
@@ -1584,6 +1602,9 @@ namespace datalog {
                   unsigned_vector curr_removed_cols;
                   get_local_indexes_for_projection(r, remaining_negated_tail, remaining_interpreted_tail, pos_tail, single_res_expr, i + 1, curr_removed_cols);
 
+                  TRACE("dl_query_plan", tout << "join: t1_reg (intermediate) before: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0)
+                      << ", t2_reg before: " << (ctx.reg(t2_reg) ? ctx.reg(t2_reg)->get_size_estimate_rows() : 0) << "\n";);
+                  unsigned size_before = (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) * (ctx.reg(t2_reg) ? ctx.reg(t2_reg)->get_size_estimate_rows() : 0);
                   if (curr_removed_cols.empty()) {
                       g_compiler->make_join(empty, t1_reg, t2_reg, a1a2, single_res, (i > 1), ctx);
                   }
@@ -1591,6 +1612,10 @@ namespace datalog {
                       g_compiler->make_join_project(empty, t1_reg, t2_reg, a1a2, curr_removed_cols, single_res, (i > 1), ctx);
                   }
                   t1_reg = single_res;
+                  unsigned size_after = (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0);
+                  if (size_before - size_after != 0) {
+                      TRACE("dl_query_plan", tout << "join improvement (" << (size_before - size_after) << ") @ iteration " << i << "\n";);
+                  }
                   empty |= (ctx.reg(t1_reg) == 0);
                   // No early exit of this loop even if relation becomes empty in join
                   // in order to compute the correct result expression.
@@ -1633,8 +1658,8 @@ namespace datalog {
               }
           }
           else if (pt_len == 1) {
-              expr_ref_vector a = pos_tail[0].expr;
-              single_res = pos_tail[0].reg;
+              expr_ref_vector a = pos_tail[0]->expr;
+              single_res = pos_tail[0]->reg;
               dealloc = false;
               TRACE("dl_query_plan", tout << "sig " << single_res << " size: " << g_compiler->m_reg_signatures[single_res].size() << " vs expr size " << a.size() << "\n";);
               SASSERT(g_compiler->m_reg_signatures[single_res].size() == a.size());
@@ -1661,9 +1686,9 @@ namespace datalog {
                   single_res = execution_context::void_register;
               }
               else {
-                  single_res = pos_tail[0].reg; // in this case we added a total_relation to pos_tail
-                  for (unsigned i = 0; i < pos_tail[0].expr.size(); ++i) {
-                      single_res_expr.push_back(pos_tail[0].expr.get(i));
+                  single_res = pos_tail[0]->reg; // in this case we added a total_relation to pos_tail
+                  for (unsigned i = 0; i < pos_tail[0]->expr.size(); ++i) {
+                      single_res_expr.push_back(pos_tail[0]->expr.get(i));
                   }
               }
               dealloc = false;
@@ -1672,7 +1697,7 @@ namespace datalog {
 
       void do_join_project(bool & empty, unsigned pt_len, 
         func_decl * head_pred, int2ints & var_indexes,
-        bool &dealloc, ast_manager & m, vector<tail_data> & pos_tail,
+        bool &dealloc, ast_manager & m, ptr_vector<tail_data> & pos_tail,
         int_set & remaining_negated_tail,
         int_set & remaining_interpreted_tail,
         expr_ref_vector & single_res_expr,
@@ -1918,7 +1943,7 @@ namespace datalog {
       // apply the negative tail to "picked" (pick_tail_indexes) indexes in the positive tail 
       // mark the ones not used as remaining
       void apply_neg_to_pos(unsigned pt_len, unsigned ut_len, const int2ints & neg_picks,
-        vector<tail_data> & pos_tail,
+        ptr_vector<tail_data> & pos_tail,
         int_set & remaining_negated_tail, int_set & aux_regs,
         ast_manager & m, bool & empty, bool & dealloc, execution_context & ctx) {
 
@@ -1931,7 +1956,7 @@ namespace datalog {
             for (; pi_it != pi_end; ++pi_it) {
               unsigned pos_index = *pi_it;
               TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
-              reg_idx & pos_reg = pos_tail[pos_index].reg;
+              reg_idx & pos_reg = pos_tail[pos_index]->reg;
               TRACE("dl_query_plan", tout << "tail @ pos_index: " << mk_pp(r->get_tail(pos_index), m) << " pos_index: " << pos_index << " pos_reg: " << pos_reg << "\n"
                                      << "before neg " << ctx.reg(pos_reg) << " #rows " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               // only need to clone if reg is in "original" positive tail
@@ -1940,7 +1965,7 @@ namespace datalog {
                 g_compiler->make_clone(pos_reg, pos_reg, ctx);
                 aux_regs.insert(pos_reg);
               }
-              apply_negative_predicate(false, pos_tail[pos_index].expr, pos_reg, neg_index, dealloc, m, ctx);
+              apply_negative_predicate(false, pos_tail[pos_index]->expr, pos_reg, neg_index, dealloc, m, ctx);
               TRACE("dl_query_plan", tout << "after neg " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               empty |= (ctx.reg(pos_reg) == 0);
             }
@@ -1956,8 +1981,10 @@ namespace datalog {
 
       // apply the interpreted tail to "picked" (pick_tail_indexes) indexes in the positive tail 
       // mark the ones not used as remaining
+      // if multiple filters apply to a single positive relation, we iterate multiple times over the relation
+      // instead of iterating once with the conjunction of the filters (implementation detail: O(k*n) vs O(n*k))
       void apply_filter_to_pos(unsigned ut_len, unsigned ft_len, const int2ints & interpreted_picks,
-        vector<tail_data> & pos_tail,
+        ptr_vector<tail_data> & pos_tail,
         int_set & remaining_interpreted_tail, int_set & aux_regs,
         ast_manager & m, bool & empty, bool & dealloc, execution_context & ctx) {
 
@@ -1970,7 +1997,7 @@ namespace datalog {
             for (; pi_it != pi_end; ++pi_it) {
               unsigned pos_index = *pi_it;
               TRACE("dl_query_plan", tout << "pos_app " << mk_pp(r->get_tail(pos_index), m) << "\n";);
-              reg_idx & pos_reg = pos_tail[pos_index].reg;
+              reg_idx & pos_reg = pos_tail[pos_index]->reg;
               TRACE("dl_query_plan", tout << "tail @ pos_index: " << mk_pp(r->get_tail(pos_index), m) << " pos_index: " << pos_index << " pos_reg: " << pos_reg << "\n"
                                      << "before filter " << ctx.reg(pos_reg) << " #rows " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               // only need to clone if reg is in "original" positive tail
@@ -1979,7 +2006,7 @@ namespace datalog {
                 g_compiler->make_clone(pos_reg, pos_reg, ctx);
                 aux_regs.insert(pos_reg);
               }
-              apply_filter(pos_tail[pos_index].expr, pos_reg, interpreted_index, dealloc, m, ctx);
+              apply_filter(pos_tail[pos_index]->expr, pos_reg, interpreted_index, dealloc, m, ctx);
               TRACE("dl_query_plan", tout << "after filter " << (ctx.reg(pos_reg) ? ctx.reg(pos_reg)->get_size_estimate_rows() : 0) << "\n";);
               empty |= (ctx.reg(pos_reg) == 0);
             }
@@ -1993,10 +2020,35 @@ namespace datalog {
         SASSERT(interpreted_applications + remaining_interpreted_tail.size() == ft_len - ut_len);
       }
 
+      // Invariant: All positive relations are non-empty
+      void plan_join_order(const int2ints & pt_var_occurrences, ptr_vector<tail_data> & pos_tail, execution_context & ctx) {
 
+          ptr_vector<tail_data>::const_iterator it = pos_tail.begin(), end = pos_tail.end();
+          TRACE("dl_join_order", tout << "table sizes before:\n"; for (; it != end; ++it) {
+              tout << ctx.reg((*it)->reg)->get_size_estimate_rows() << "\n";
+          });
 
-      void plan_join_order(int2ints & pt_var_occurrences) {
-        // TODO
+          // Ideas: table size, var overlap, projections, enable negations/filtering
+          class custom_compare {
+          private:
+              execution_context & m_ctx;
+          public:
+              custom_compare(execution_context &ctx) : m_ctx(ctx) {};
+
+              bool operator()(const tail_data *a, const tail_data *b) {
+                  SASSERT(m_ctx.reg(a->reg));
+                  SASSERT(m_ctx.reg(b->reg));
+                  return m_ctx.reg(a->reg)->get_size_estimate_rows() < m_ctx.reg(b->reg)->get_size_estimate_rows();
+              }
+          };
+
+          std::sort(pos_tail.begin(), pos_tail.end(), custom_compare(ctx));
+
+          it = pos_tail.begin();
+          end = pos_tail.end();
+          TRACE("dl_join_order", tout << "table sizes after:\n"; for (; it != end; ++it) {
+              tout << ctx.reg((*it)->reg)->get_size_estimate_rows() << "\n";
+          });
       }
 
     public:
@@ -2027,12 +2079,12 @@ namespace datalog {
         // flag to check whether any relation is/has turned empty, in order to avoid unnecessary work.
         bool empty = false;
 
-        vector<tail_data> pos_tail;
+        ptr_vector<tail_data> pos_tail;
         // set up modifiable predicates / tmp registers / var_indexes
         for (unsigned i = 0; i < pt_len; ++i) {
           SASSERT(g_compiler->m_reg_signatures[tail_regs[i]].size() == r->get_tail(i)->get_num_args());
           expr_ref_vector res_expr = expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args());
-          pos_tail.push_back({ res_expr, tail_regs[i] });
+          pos_tail.push_back(new tail_data(res_expr, tail_regs[i]));
           TRACE("dl_query_plan", if(pt_len > 1) {tout << "at start " << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";});
           if (!ctx.reg(tail_regs[i])) {
             empty = true;
@@ -2075,25 +2127,29 @@ namespace datalog {
         if (!empty) {
           TRACE("dl_query_plan", tout << "all not empty:\n";
             for (unsigned i = 0; i < pt_len; ++i) {
-              tout << "  " << ctx.reg(tail_regs[i])->get_size_estimate_rows() << "\n" << mk_pp(r->get_tail(i), m) << "\n";
+              tout << "  " << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";
             }
           );
         }
 
 
         if (!empty && pt_len > 1) {
-          plan_join_order(pt_var_occurrences);
+          plan_join_order(pt_var_occurrences, pos_tail, ctx);
         }
 
-        // TOOD use tail_data struct
+        // TODO use tail_data struct
         expr_ref_vector single_res_expr(m);
         reg_idx single_res_reg;
         int2ints pos_tail_var_indexes;
         do_join_project(empty, pt_len, head_pred, pos_tail_var_indexes, dealloc, m, pos_tail, remaining_negated_tail, remaining_interpreted_tail, single_res_expr, single_res_reg, ctx);
         // from here on use single_res_expr/single_res_reg instead of pos
+        ptr_vector<tail_data>::iterator pt_it = pos_tail.begin(), pt_end = pos_tail.end();
+        for (; pt_it != pt_end; ++pt_it) {
+            delete *pt_it;
+        }
         pos_tail.reset();
 
-        TRACE("dl_query_plan", tout << "after join " << (ctx.reg(pos_tail[0].reg) ? ctx.reg(pos_tail[0].reg)->get_size_estimate_rows() : 0) << "\n";);
+        TRACE("dl_query_plan", tout << "after join " << (ctx.reg(single_res_reg) ? ctx.reg(single_res_reg)->get_size_estimate_rows() : 0) << "\n";);
 
         // clean up auxiliary regs for negation/filter before join
         int_set::iterator tr_it = aux_regs.begin(), tr_end = aux_regs.end();
