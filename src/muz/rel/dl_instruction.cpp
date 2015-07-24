@@ -1293,13 +1293,20 @@ namespace datalog {
         }
       }
 
-      void do_remove_columns(expr_ref_vector &res_expr, int2ints & var_indexes, unsigned_vector &remove_columns) {
+      void compute_removable_columns(expr_ref_vector &res_expr, const int_set & remaining_neg_tail, 
+        int2ints & var_indexes, unsigned_vector &remove_columns) {
+        var_counter neg_count;
+        int_set::iterator rem_it = remaining_neg_tail.begin(), rem_end = remaining_neg_tail.end();
+        for (; rem_it != rem_end; ++rem_it) {
+          TRACE("dl_query_plan", tout << "neg app: " << mk_pp(r->get_tail(*rem_it), g_compiler->m_context.get_manager()) << "\n";);
+          neg_count.count_vars(r->get_tail(*rem_it));
+        }
         unsigned_vector var_idx_to_remove;
         g_compiler->m_free_vars(r->get_head());
         for (int2ints::iterator I = var_indexes.begin(), E = var_indexes.end();
           I != E; ++I) {
           unsigned var_idx = I->m_key;
-          if (!g_compiler->m_free_vars.contains(var_idx)) {
+          if (!g_compiler->m_free_vars.contains(var_idx) && neg_count.get(var_idx) == 0) {
             unsigned_vector & cols = I->m_value;
             for (unsigned i = 0; i < cols.size(); ++i) {
               remove_columns.push_back(cols[i]);
@@ -1383,7 +1390,8 @@ namespace datalog {
       }
 
 
-      void make_filter(expr_ref_vector &single_res_expr, ptr_vector<expr> &interpreted_tail, func_decl * head_pred,
+      void make_filter(expr_ref_vector &single_res_expr, ptr_vector<expr> &interpreted_tail, 
+          const int_set & remaining_neg_tail, func_decl * head_pred,
           int2ints & var_indexes, reg_idx &single_res_reg, bool &dealloc, ast_manager & m, execution_context & ctx) {
         // add unbounded columns for interpreted filter
         expr_ref_vector binding(m);
@@ -1393,8 +1401,7 @@ namespace datalog {
 
         // check if there are any columns to remove
         unsigned_vector remove_columns;
-        // TODO project the columns that are not needed in remaining negation
-        //do_remove_columns(single_res_expr, var_indexes, remove_columns);
+        compute_removable_columns(single_res_expr, remaining_neg_tail, var_indexes, remove_columns);
 
         expr_ref renamed(m);
         g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
@@ -1406,12 +1413,29 @@ namespace datalog {
         }
         else {
           std::sort(remove_columns.begin(), remove_columns.end());
+
+          // Remove columns from single_res_expr
+          expr_ref_vector tmp(m);
+          unsigned j = 0;
+          for (unsigned i = 0; i < single_res_expr.size(); ++i) {
+              if (j >= remove_columns.size() || i < remove_columns[j]) {
+                  tmp.push_back(single_res_expr.get(i));
+              }
+              else {
+                  j++;
+              }
+          }
+          single_res_expr.reset();
+          for (unsigned i = 0; i < tmp.size(); ++i) {
+              single_res_expr.push_back(tmp.get(i));
+          }
+
           g_compiler->make_filter_interpreted_and_project(single_res_reg, app_renamed, remove_columns, single_res_reg, dealloc, ctx);
         }
 
       }
 
-      void do_remaining_filter(const int_set & remaining_int_tail,
+      void do_remaining_filter(const int_set & remaining_int_tail, const int_set & remaining_neg_tail,
         func_decl * head_pred, int2ints & var_indexes, bool &dealloc, ast_manager & m,
         expr_ref_vector & single_res_expr, reg_idx &single_res_reg, execution_context & ctx) {
 
@@ -1423,7 +1447,7 @@ namespace datalog {
         }
 
         if (!interpreted_tail.empty()) {
-          make_filter(single_res_expr, interpreted_tail, head_pred, var_indexes, single_res_reg, dealloc, m, ctx);
+          make_filter(single_res_expr, interpreted_tail, remaining_neg_tail, head_pred, var_indexes, single_res_reg, dealloc, m, ctx);
           dealloc = true;
         }
       }
@@ -1686,15 +1710,8 @@ namespace datalog {
           else {
               SASSERT(pt_len == 0);
               SASSERT(pos_tail.size() == 0);
-              //if (pos_tail.size() == 0) {
-                  single_res = execution_context::void_register;
-              /*}
-              else {
-                  single_res = pos_tail[0]->reg; // in this case we added a total_relation to pos_tail
-                  for (unsigned i = 0; i < pos_tail[0]->expr.size(); ++i) {
-                      single_res_expr.push_back(pos_tail[0]->expr.get(i));
-                  }
-              }*/
+              single_res = execution_context::void_register;
+
               dealloc = false;
           }
       }
@@ -2025,7 +2042,7 @@ namespace datalog {
       }
 
       // Invariant: All positive relations are non-empty
-      void plan_join_order(const int2ints & pt_var_occurrences, ptr_vector<tail_data> & pos_tail, execution_context & ctx) {
+      void plan_join_order(ptr_vector<tail_data> & pos_tail, execution_context & ctx) {
 
           ptr_vector<tail_data>::const_iterator it = pos_tail.begin(), end = pos_tail.end();
           TRACE("dl_join_order", tout << "table sizes before:\n"; for (; it != end; ++it) {
@@ -2085,20 +2102,14 @@ namespace datalog {
         bool empty = false;
 
         ptr_vector<tail_data> pos_tail;
-        // set up modifiable predicates / tmp registers / var_indexes
+        // set up modifiable predicates / tmp registers
         for (unsigned i = 0; i < pt_len; ++i) {
           SASSERT(g_compiler->m_reg_signatures[tail_regs[i]].size() == r->get_tail(i)->get_num_args());
           expr_ref_vector res_expr = expr_ref_vector(g_compiler->m_context.get_manager(), r->get_tail(i)->get_num_args(), r->get_tail(i)->get_args());
           pos_tail.push_back(new tail_data(res_expr, tail_regs[i]));
           TRACE("dl_query_plan", if(pt_len > 1) {tout << "at start " << (ctx.reg(tail_regs[i]) ? ctx.reg(tail_regs[i])->get_size_estimate_rows() : 0) << "\n" << mk_pp(r->get_tail(i), m) << "\n";});
-          if (!ctx.reg(tail_regs[i])) {
-            empty = true;
-          }
-        }
 
-        int2ints pt_var_occurrences;
-        if (!empty && pt_len > 1) {
-          compute_var_occurrences(pt_len, pt_var_occurrences);
+          empty |= (ctx.reg(tail_regs[i]) == 0);
         }
 
         int_set remaining_negated_tail;
@@ -2106,18 +2117,17 @@ namespace datalog {
         int_set aux_regs;
         if (!empty && pt_len > 1 && ft_len - pt_len > 0) {
           int2ints neg_picks, interpreted_picks;
+          int2ints pt_var_occurrences;
+          compute_var_occurrences(pt_len, pt_var_occurrences);
 
-          TRACE("dl_query_plan", tout << "negated\n";);
           pick_tail_indexes(pt_len, ut_len, pt_var_occurrences, false, m, neg_picks);
           apply_neg_to_pos(pt_len, ut_len, neg_picks, pos_tail, remaining_negated_tail, aux_regs, m, empty, dealloc, ctx);
 
-          TRACE("dl_query_plan", tout << "interpreted\n";);
           pick_tail_indexes(ut_len, ft_len, pt_var_occurrences, true, m, interpreted_picks);
           apply_filter_to_pos(ut_len, ft_len, interpreted_picks, pos_tail, remaining_interpreted_tail, aux_regs, m, empty, dealloc, ctx);
         }
         else {
-          // No reordering before joins
-          TRACE("dl_query_plan", tout << "EMPTY OR PT_LEN == 1\n";);
+          // No eager negation/filter application to positive predicates
           for (unsigned neg_index = pt_len; neg_index < ut_len; ++neg_index) {
             remaining_negated_tail.insert(neg_index);
           }
@@ -2139,7 +2149,7 @@ namespace datalog {
 
 
         if (!empty && pt_len > 1) {
-          plan_join_order(pt_var_occurrences, pos_tail, ctx);
+          plan_join_order(pos_tail, ctx);
         }
 
         // TODO use tail_data struct
@@ -2154,7 +2164,7 @@ namespace datalog {
         }
         pos_tail.reset();
 
-        TRACE("dl_query_plan", tout << "after join " << (ctx.reg(single_res_reg) ? ctx.reg(single_res_reg)->get_size_estimate_rows() : 0) << "\n";);
+        TRACE("dl_query_plan", tout << "size after join " << (ctx.reg(single_res_reg) ? ctx.reg(single_res_reg)->get_size_estimate_rows() : 0) << "\n";);
 
         // clean up auxiliary regs for negation/filter before join
         int_set::iterator tr_it = aux_regs.begin(), tr_end = aux_regs.end();
@@ -2162,7 +2172,7 @@ namespace datalog {
           g_compiler->make_dealloc_non_void(*tr_it, ctx);
         }
 
-        do_remaining_filter(remaining_interpreted_tail, head_pred, pos_tail_var_indexes, dealloc, m, single_res_expr, single_res_reg, ctx);
+        do_remaining_filter(remaining_interpreted_tail, remaining_negated_tail, head_pred, pos_tail_var_indexes, dealloc, m, single_res_expr, single_res_reg, ctx);
         do_remaining_negation(remaining_negated_tail, head_pred, pos_tail_var_indexes, dealloc, m, single_res_expr, single_res_reg, ctx);
         do_assemble(head_len, h, head_pred, pos_tail_var_indexes, dealloc, m, single_res_expr, single_res_reg, ctx);
         return true;

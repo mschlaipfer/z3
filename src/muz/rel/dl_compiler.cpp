@@ -449,7 +449,7 @@ namespace datalog {
                 entry->get_data().m_value.push_back(single_res_expr.size() - 1);
 
                 make_add_unbound_column(r, v, pred, single_res, m.get_sort(e), single_res, dealloc, ctx);
-                TRACE("dl", tout << "Adding unbound column: " << mk_pp(e, m) << "\n";);
+                TRACE("dl_query_plan", tout << "Adding unbound column: " << mk_pp(e, m) << "\n";);
             }
         }
     }
