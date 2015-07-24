@@ -1229,7 +1229,6 @@ namespace datalog {
         expr_ref_vector & single_res_expr, reg_idx & single_res_reg, execution_context & ctx) {
 
         g_compiler->add_unbound_columns_for_negation(r, remaining_neg_tail, head_pred, single_res_reg, single_res_expr, var_indexes, dealloc, ctx);
-
         // add at least one column for the negative filter
         // lengths in original rule (DON'T USE res_expr.size())
         if (!remaining_neg_tail.empty() && single_res_reg == execution_context::void_register) {
@@ -1394,7 +1393,8 @@ namespace datalog {
 
         // check if there are any columns to remove
         unsigned_vector remove_columns;
-        do_remove_columns(single_res_expr, var_indexes, remove_columns);
+        // TODO project the columns that are not needed in remaining negation
+        //do_remove_columns(single_res_expr, var_indexes, remove_columns);
 
         expr_ref renamed(m);
         g_compiler->m_context.get_var_subst()(filter_cond, binding.size(), binding.c_ptr(), renamed);
@@ -1411,13 +1411,14 @@ namespace datalog {
 
       }
 
-      void do_remaining_filter(const int_set & remaining_neg_tail,
+      void do_remaining_filter(const int_set & remaining_int_tail,
         func_decl * head_pred, int2ints & var_indexes, bool &dealloc, ast_manager & m,
         expr_ref_vector & single_res_expr, reg_idx &single_res_reg, execution_context & ctx) {
 
         ptr_vector<expr> interpreted_tail;
-        int_set::iterator rem_it = remaining_neg_tail.begin(), rem_end = remaining_neg_tail.end();
+        int_set::iterator rem_it = remaining_int_tail.begin(), rem_end = remaining_int_tail.end();
         for (; rem_it != rem_end; ++rem_it) {
+          TRACE("dl_query_plan", tout << "filter_app " << mk_pp(r->get_tail(*rem_it), g_compiler->m_context.get_manager()) << "\n";);
           interpreted_tail.push_back(r->get_tail(*rem_it));
         }
 
@@ -1604,6 +1605,8 @@ namespace datalog {
 
                   TRACE("dl_query_plan", tout << "join: t1_reg (intermediate) before: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0)
                       << ", t2_reg before: " << (ctx.reg(t2_reg) ? ctx.reg(t2_reg)->get_size_estimate_rows() : 0) << "\n";);
+                  //std::cout << "join: t1_reg (intermediate) before: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0)
+                  //    << ", t2_reg before: " << (ctx.reg(t2_reg) ? ctx.reg(t2_reg)->get_size_estimate_rows() : 0) << "\n";
                   unsigned size_before = (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) * (ctx.reg(t2_reg) ? ctx.reg(t2_reg)->get_size_estimate_rows() : 0);
                   if (curr_removed_cols.empty()) {
                       g_compiler->make_join(empty, t1_reg, t2_reg, a1a2, single_res, (i > 1), ctx);
@@ -1612,6 +1615,7 @@ namespace datalog {
                       g_compiler->make_join_project(empty, t1_reg, t2_reg, a1a2, curr_removed_cols, single_res, (i > 1), ctx);
                   }
                   t1_reg = single_res;
+                  //std::cout << "done join, size: " << (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0) << "\n";
                   unsigned size_after = (ctx.reg(t1_reg) ? ctx.reg(t1_reg)->get_size_estimate_rows() : 0);
                   if (size_before - size_after != 0) {
                       TRACE("dl_query_plan", tout << "join improvement (" << (size_before - size_after) << ") @ iteration " << i << "\n";);
@@ -1681,16 +1685,16 @@ namespace datalog {
           }
           else {
               SASSERT(pt_len == 0);
-
-              if (pos_tail.size() == 0) {
+              SASSERT(pos_tail.size() == 0);
+              //if (pos_tail.size() == 0) {
                   single_res = execution_context::void_register;
-              }
+              /*}
               else {
                   single_res = pos_tail[0]->reg; // in this case we added a total_relation to pos_tail
                   for (unsigned i = 0; i < pos_tail[0]->expr.size(); ++i) {
                       single_res_expr.push_back(pos_tail[0]->expr.get(i));
                   }
-              }
+              }*/
               dealloc = false;
           }
       }
@@ -2039,6 +2043,7 @@ namespace datalog {
                   SASSERT(m_ctx.reg(a->reg));
                   SASSERT(m_ctx.reg(b->reg));
                   return m_ctx.reg(a->reg)->get_size_estimate_rows() < m_ctx.reg(b->reg)->get_size_estimate_rows();
+                  //return a->expr.size() > b->expr.size();
               }
           };
 
@@ -2157,13 +2162,9 @@ namespace datalog {
           g_compiler->make_dealloc_non_void(*tr_it, ctx);
         }
 
-
-        do_remaining_negation(remaining_negated_tail, head_pred, pos_tail_var_indexes, dealloc, m, single_res_expr, single_res_reg, ctx);
-
         do_remaining_filter(remaining_interpreted_tail, head_pred, pos_tail_var_indexes, dealloc, m, single_res_expr, single_res_reg, ctx);
-
+        do_remaining_negation(remaining_negated_tail, head_pred, pos_tail_var_indexes, dealloc, m, single_res_expr, single_res_reg, ctx);
         do_assemble(head_len, h, head_pred, pos_tail_var_indexes, dealloc, m, single_res_expr, single_res_reg, ctx);
-        
         return true;
       }
       virtual void display_head_impl(execution_context const& ctx, std::ostream & out) const {
