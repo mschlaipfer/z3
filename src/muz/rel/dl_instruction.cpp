@@ -1544,6 +1544,7 @@ namespace datalog {
                   // TODO refactor into separate function(s)
                   // (i>1) means t1_reg is intermediate
                   // All the initial relations are already reduced by negations and filters ahead of time
+                  // TODO move after join then no need for i>1 check
                   if (!empty && i > 1) {
                       var_counter counter;
                       counter.count_vars(single_res_expr);
