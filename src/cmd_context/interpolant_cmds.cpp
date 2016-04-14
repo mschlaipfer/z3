@@ -152,6 +152,9 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, par
     bool proofs_enabled, models_enabled, unsat_core_enabled;
     params_ref p;
     ast_manager &_m = ctx.m();
+
+    TRACE("bv2lia", tout << "compute_interpolant_and_maybe_check\n"; m_params.display(tout, ":use-bv2lia"); tout << "\n";);
+    TRACE("bv2lia", tout << "compute_interpolant_and_maybe_check: " << mk_pp(t, ctx.m()) << "\n";);
     // TODO: the following is a HACK to enable proofs in the old smt solver
     // When we stop using that solver, this hack can be removed
     scoped_proof_mode spm(_m,PGM_FINE);
@@ -211,6 +214,12 @@ static void get_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs, pa
 }
 
 static void compute_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs, params_ref &m_params) {
+    if (m_params.get_bool(":use-bv2lia", false)) {
+        TRACE("bv2lia", tout << "convert exprs before interpolating.\n";);
+        for (ptr_vector<expr>::const_iterator it = exprs.begin(); it != exprs.end(); ++it) {
+            TRACE("bv2lia", tout << "expr: " << mk_pp(*it, ctx.m()) << "\n";);
+        }
+    }
     expr_ref foo(make_tree(ctx, exprs),ctx.m());
     compute_interpolant_and_maybe_check(ctx,foo.get(),m_params,false);
 }
@@ -241,10 +250,12 @@ public:
     }
 
     virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const {
+        TRACE("bv2lia", tout << "in get_interpolant_cmd.next_arg_kind\n";);
         return CPK_EXPR;
     }
     
     virtual void set_next_arg(cmd_context & ctx, expr * arg) {
+        TRACE("bv2lia", tout << "in set_next_arg: " << mk_pp(arg, ctx.m()) << "\n";);
         m_targets.push_back(arg);
     }
     
@@ -254,9 +265,41 @@ public:
 };
 
 class compute_interpolant_cmd : public get_interpolant_cmd {
+    mutable unsigned     m_arg_idx;
 public:
-    compute_interpolant_cmd(char const * name = "compute-interpolant"):get_interpolant_cmd(name) {}
+    compute_interpolant_cmd(char const * name = "compute-interpolant"): 
+      get_interpolant_cmd(name) {}
+    
+    virtual void prepare(cmd_context & ctx) {
+        m_arg_idx = 0;
+    }
 
+    virtual void init_pdescrs(cmd_context & ctx, param_descrs & p) {
+        p.insert("use-bv2lia", CPK_BOOL, "(default: false)");
+    }
+
+    virtual void set_next_arg(cmd_context & ctx, expr * arg) {
+        TRACE("bv2lia", tout << "in compute_interpolant_cmd.set_next_arg expr: " << mk_pp(arg, ctx.m()) << ", m_arg_idx: " << m_arg_idx << "\n";);
+        if (m_arg_idx < 2)
+            m_targets.push_back(arg);
+        ++m_arg_idx;
+    }
+     
+    virtual void set_next_arg(cmd_context & ctx, symbol const & s) { 
+        TRACE("bv2lia", tout << "in compute_interpolant_cmd.set_next_arg symbol: " << s << ", m_arg_idx: " << m_arg_idx << "\n";);
+
+        m_params.set_bool(s, true);
+        m_last = symbol::null;
+    }
+        
+    virtual cmd_arg_kind next_arg_kind(cmd_context & ctx) const {
+        TRACE("bv2lia", tout << "in compute_interpolant_cmd.next_arg_kind, m_arg_idx: " << m_arg_idx << "\n";);
+        if (m_arg_idx < 2)
+            return CPK_EXPR;
+        else
+            return parametric_cmd::next_arg_kind(ctx);
+    }
+    
     virtual void execute(cmd_context & ctx) {      
         compute_interpolant(ctx,m_targets,m_params);
     }
