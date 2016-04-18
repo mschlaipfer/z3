@@ -5,6 +5,7 @@ z3_add_component(rewriter
     ast_counter.cpp
     bool_rewriter.cpp
     bv_rewriter.cpp
+    bv2lia_rewriter.cpp
     datatype_rewriter.cpp
     der.cpp
     dl_rewriter.cpp

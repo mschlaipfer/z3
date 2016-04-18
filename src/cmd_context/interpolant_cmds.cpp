@@ -34,6 +34,7 @@
 #include"iz3profiling.h"
 #include"interp_params.hpp"
 #include"scoped_proof.h"
+#include"bv2lia_rewriter.h"
 
 static void show_interpolant_and_maybe_check(cmd_context & ctx,
                                              ptr_vector<ast> &cnsts,
@@ -218,6 +219,11 @@ static void compute_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs
         TRACE("bv2lia", tout << "convert exprs before interpolating.\n";);
         for (ptr_vector<expr>::const_iterator it = exprs.begin(); it != exprs.end(); ++it) {
             TRACE("bv2lia", tout << "expr: " << mk_pp(*it, ctx.m()) << "\n";);
+            // TODO rewrite
+            bv2lia_rewriter bv2lia_rw = bv2lia_rewriter(ctx.m(), m_params);
+            app *a = to_app(*it);
+            expr_ref res(ctx.m());
+            bv2lia_rw(a, a->get_num_args(), a->get_args(), res);
         }
     }
     expr_ref foo(make_tree(ctx, exprs),ctx.m());
