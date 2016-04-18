@@ -52,6 +52,11 @@ public:
 
 private:
     br_status mk_eq(expr * arg1, expr * arg2, expr_ref & result);
+    br_status mk_concat(expr * arg1, expr * arg2, expr_ref & result);
+    br_status mk_badd(expr * arg1, expr * arg2, expr_ref & result);
+    br_status mk_uleq(expr * arg1, expr * arg2, expr_ref & result);
+    br_status mk_bv_num(func_decl * arg1, expr_ref & result);
+    /*
     br_status mk_ite(expr* c, expr* s, expr* t, expr_ref& result);
     br_status mk_le(expr * arg1, expr * arg2, expr_ref & result);
     br_status mk_lt(expr * arg1, expr * arg2, expr_ref & result);
@@ -67,6 +72,7 @@ private:
     br_status mk_mul(expr* s, expr* t, expr_ref& result);
     br_status mk_sub(expr* s, expr* t, expr_ref& result);
     br_status mk_uminus(expr* e, expr_ref & result); 
+    */
 
     bool      is_bv2int(expr* e, expr_ref& s);
     bool      is_sbv2int(expr* e, expr_ref& s);
