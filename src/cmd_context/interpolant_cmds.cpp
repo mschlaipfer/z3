@@ -202,9 +202,14 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, par
 static expr *make_tree(cmd_context & ctx, const ptr_vector<expr> &exprs){
     if(exprs.size() == 0)
         throw cmd_exception("not enough arguments");
+    // TODO foo/exprs not working. segfaults here
     expr *foo = exprs[0];
     for(unsigned i = 1; i < exprs.size(); i++){
-        foo = ctx.m().mk_and(ctx.m().mk_interp(foo),exprs[i]);
+        TRACE("bv2lia", tout << "i: " << i << ", foo: " << mk_pp(foo, ctx.m()) << std::endl;);
+        TRACE("bv2lia", tout << "before interp family name: " << ctx.m().get_family_name(ctx.m().get_basic_family_id()) << std::endl;);
+        expr* interp = ctx.m().mk_interp(foo);
+        TRACE("bv2lia", tout << "after interp: " << ctx.m().get_basic_family_id() << std::endl;);
+        foo = ctx.m().mk_and(interp,exprs[i]);
     }    
     return foo;
 }
@@ -216,18 +221,26 @@ static void get_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs, pa
 
 static void compute_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs, params_ref &m_params) {
     if (m_params.get_bool(":use-bv2lia", false)) {
+        ptr_vector<expr> lia_exprs;
         TRACE("bv2lia", tout << "convert exprs before interpolating.\n";);
         for (ptr_vector<expr>::const_iterator it = exprs.begin(); it != exprs.end(); ++it) {
-            TRACE("bv2lia", tout << "expr: " << mk_pp(*it, ctx.m()) << "\n";);
+            TRACE("bv2lia", tout << "before rewrite expr: " << mk_pp(*it, ctx.m()) << std::endl;);
             // TODO rewrite
             bv2lia_rewriter bv2lia_rw = bv2lia_rewriter(ctx.m(), m_params);
             app *a = to_app(*it);
             expr_ref res(ctx.m());
             bv2lia_rw(a, a->get_num_args(), a->get_args(), res);
+            TRACE("bv2lia", tout << "after rewrite expr: " << mk_pp(res, ctx.m()) << std::endl;);
+            lia_exprs.push_back(res);
         }
+        // TODO change to lia family?
+        TRACE("bv2lia", tout << "after loop, lia_exprs size: " << lia_exprs.size() << std::endl;);
+        expr_ref foo(make_tree(ctx, lia_exprs),ctx.m());
+        compute_interpolant_and_maybe_check(ctx,foo.get(),m_params,false);
+    } else {
+        expr_ref foo(make_tree(ctx, exprs),ctx.m());
+        compute_interpolant_and_maybe_check(ctx,foo.get(),m_params,false);
     }
-    expr_ref foo(make_tree(ctx, exprs),ctx.m());
-    compute_interpolant_and_maybe_check(ctx,foo.get(),m_params,false);
 }
 
 

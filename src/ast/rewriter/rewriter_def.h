@@ -70,7 +70,7 @@ template<bool ProofGen>
 void rewriter_tpl<Config>::process_const(app * t) {
     SASSERT(t->get_num_args() == 0);
     br_status st = m_cfg.reduce_app(t->get_decl(), 0, 0, m_r, m_pr);
-    SASSERT(st != BR_DONE || m().get_sort(m_r) == m().get_sort(t));
+    //SASSERT(st != BR_DONE || m().get_sort(m_r) == m().get_sort(t));
     SASSERT(st == BR_FAILED || st == BR_DONE);
     if (st == BR_DONE) {
         result_stack().push_back(m_r.get());
@@ -222,7 +222,7 @@ void rewriter_tpl<Config>::process_app(app * t, frame & fr) {
             }
         }
         br_status st = m_cfg.reduce_app(f, new_num_args, new_args, m_r, m_pr2);
-        SASSERT(st != BR_DONE || m().get_sort(m_r) == m().get_sort(t));
+        //SASSERT(st != BR_DONE || m().get_sort(m_r) == m().get_sort(t));
         TRACE("reduce_app", 
               tout << mk_ismt2_pp(t, m()) << "\n";
               tout << "st: " << st;
@@ -230,7 +230,7 @@ void rewriter_tpl<Config>::process_app(app * t, frame & fr) {
               tout << "\n";);
         if (st != BR_FAILED) {
             result_stack().shrink(fr.m_spos);
-            SASSERT(m().get_sort(m_r) == m().get_sort(t));
+            //SASSERT(m().get_sort(m_r) == m().get_sort(t));
             result_stack().push_back(m_r);
             if (ProofGen) {
                 result_pr_stack().shrink(fr.m_spos);

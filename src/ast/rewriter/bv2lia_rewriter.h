@@ -22,11 +22,12 @@ Notes:
 #include"rewriter.h"
 
 class bv2lia_rewriter_cfg : public default_rewriter_cfg {
-    ast_manager       & m_manager;
-    expr_ref_vector     m_out;
-    sort_ref_vector     m_bindings;
-    bv_util             m_bv_util;
-    arith_util          m_arith_util;
+    ast_manager                            & m_manager;
+    expr_ref_vector                          m_out;
+    sort_ref_vector                          m_bindings;
+    bv_util                                  m_bv_util;
+    arith_util                               m_arith_util;
+    obj_map<expr, expr*>                     m_const2lia;
 
 public:
     bv2lia_rewriter_cfg(ast_manager & m, params_ref const & p);
@@ -39,7 +40,7 @@ public:
 
     bool pre_visit(expr * t);
 
-    br_status reduce_app(func_decl * f, unsigned num_args, expr * const * args, expr_ref & result, proof_ref & result_pr);
+    br_status reduce_app(func_decl * f, unsigned num, expr * const * args, expr_ref & result, proof_ref & result_pr);
 
     bool reduce_quantifier(quantifier * old_q,
                            expr * new_body,
@@ -50,12 +51,14 @@ public:
 
     bool reduce_var(var * t, expr_ref & result, proof_ref & result_pr);
 
+    expr_ref_vector extra_assertions;
+
 private:
-    br_status mk_eq(expr * arg1, expr * arg2, expr_ref & result);
-    br_status mk_concat(expr * arg1, expr * arg2, expr_ref & result);
-    br_status mk_badd(expr * arg1, expr * arg2, expr_ref & result);
-    br_status mk_uleq(expr * arg1, expr * arg2, expr_ref & result);
-    br_status mk_bv_num(func_decl * arg1, expr_ref & result);
+    void mk_eq(expr * arg1, expr * arg2, expr_ref & result);
+    void mk_concat(expr * arg1, expr * arg2, expr_ref & result);
+    void mk_badd(expr * arg1, expr * arg2, expr_ref & result);
+    void mk_uleq(expr * arg1, expr * arg2, expr_ref & result);
+    void mk_bv_num(func_decl * arg1, expr_ref & result);
     /*
     br_status mk_ite(expr* c, expr* s, expr* t, expr_ref& result);
     br_status mk_le(expr * arg1, expr * arg2, expr_ref & result);
@@ -86,6 +89,10 @@ private:
     expr*     mk_extend(unsigned sz, expr* b, bool is_signed);
 
     void      align_sizes(expr_ref& s, expr_ref& t, bool is_signed);
+
+    expr*     fresh_var(expr* t);
+    expr*     fresh_var(expr* t, unsigned &sz);
+    expr*     fresh_var(unsigned sz);
 };
 
 
