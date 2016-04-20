@@ -49,7 +49,9 @@ bv2lia_rewriter_cfg::bv2lia_rewriter_cfg(ast_manager & m, params_ref const & p) 
 bv2lia_rewriter_cfg::~bv2lia_rewriter_cfg() {
 }
 
-void bv2lia_rewriter_cfg::reset() {}
+void bv2lia_rewriter_cfg::reset() {
+    extra_assertions.reset();
+}
 
 br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * const * args, expr_ref & result, proof_ref & result_pr) {
     result_pr = 0;
