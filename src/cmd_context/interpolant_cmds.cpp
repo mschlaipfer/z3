@@ -35,6 +35,7 @@
 #include"interp_params.hpp"
 #include"scoped_proof.h"
 #include"bv2lia_rewriter.h"
+#include"lia2bv_rewriter.h"
 
 static void show_interpolant_and_maybe_check(cmd_context & ctx,
                                              ptr_vector<ast> &cnsts,
@@ -172,6 +173,18 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, par
     lbool res;
     try {
         res = iz3interpolate(_m, *sp.get(), t, cnsts, interps, m, 0);
+        if (m_params.get_bool(":use-bv2lia", false)) {
+            TRACE("bv2lia", tout << "rewrite LIA interpolant(s) to BV" << std::endl;);
+            lia2bv_rewriter lia2bv_rw = lia2bv_rewriter(ctx.m(), m_params);
+            for(ptr_vector<ast>::iterator it = interps.begin(); it != interps.end(); ++it) {
+                TRACE("bv2lia", tout << "interp it: " << mk_pp(*it, ctx.m()) << std::endl;);
+                //bv2lia_rw.reset();
+                //expr_ref res(ctx.m());
+                //bv2lia_rw(a, a->get_num_args(), a->get_args(), res);
+                //TRACE("bv2lia", tout << "after lia2bv rewrite expr: " << mk_pp(res, ctx.m()) << std::endl;);
+            }
+
+        }
     }
     catch (iz3_incompleteness &) {
         throw cmd_exception("incompleteness in interpolator");
@@ -204,9 +217,7 @@ static expr *make_tree(cmd_context & ctx, const ptr_vector<expr> &exprs){
         throw cmd_exception("not enough arguments");
     expr *foo = exprs[0];
     for(unsigned i = 1; i < exprs.size(); i++){
-        TRACE("bv2lia", tout << "i: " << i << ", foo: " << mk_pp(foo, ctx.m()) << std::endl;);
         expr* interp = ctx.m().mk_interp(foo);
-        TRACE("bv2lia", tout << "after interp: " << ctx.m().get_basic_family_id() << std::endl;);
         foo = ctx.m().mk_and(interp,exprs[i]);
     }    
     return foo;
@@ -230,13 +241,16 @@ static void compute_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs
             // TODO can I get rid of the obvious allocation here?
             expr_ref *res = new expr_ref(ctx.m());
             bv2lia_rw(a, a->get_num_args(), a->get_args(), *res);
+            tmp.push_back(res);
+
             expr_ref_vector lia_part(ctx.m());
-            lia_part.append(bv2lia_rw.cfg().extra_assertions);
+            lia_part.append(bv2lia_rw.cfg().get_side_conditions());
             lia_part.push_back(*res);
             expr* lia_and = ctx.m().mk_and(lia_part.size(), lia_part.c_ptr());
             lia_exprs.push_back(lia_and);
-            tmp.push_back(res);
+
             TRACE("bv2lia", tout << "after rewrite expr: " << mk_pp(*res, ctx.m()) << std::endl;);
+            TRACE("bv2lia", tout << "with side conditions: " << mk_pp(lia_and, ctx.m()) << std::endl;);
         }
         expr_ref foo(make_tree(ctx, lia_exprs),ctx.m());
         compute_interpolant_and_maybe_check(ctx,foo.get(),m_params,false);

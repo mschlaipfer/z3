@@ -35,7 +35,8 @@ bv2lia_rewriter_cfg::bv2lia_rewriter_cfg(ast_manager & m, params_ref const & p) 
     m_bindings(m),
     m_bv_util(m),
     m_arith_util(m),
-    extra_assertions(m) {
+    m_side_conditions(m),
+    m_stack(m) {
     updt_params(p);
     // We need to make sure that the mananger has the BV and array plugins loaded.
     symbol s_bv("bv");
@@ -50,7 +51,7 @@ bv2lia_rewriter_cfg::~bv2lia_rewriter_cfg() {
 }
 
 void bv2lia_rewriter_cfg::reset() {
-    extra_assertions.reset();
+    m_side_conditions.reset();
 }
 
 br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * const * args, expr_ref & result, proof_ref & result_pr) {
@@ -58,12 +59,25 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
     TRACE("bv2lia", tout << f->get_name() << " ";
           for (unsigned i = 0; i < num; ++i) tout << mk_pp(args[i], m()) << " ";
           tout << "\n";);
-    /* TODO
+
+    // TODO is this info in func_decl * f?
+    expr* stack_el = m_stack.back();
+    TRACE("bv2lia", tout << "stack element: " << mk_ismt2_pp(stack_el, m()) << std::endl;);
+    m_stack.pop_back();
     if (num == 0 && f->get_family_id() == null_family_id && m_bv_util.is_bv_sort(f->get_range())) {
-        result = fresh_var(f);
+        /* TODO
+        sort * s = f->get_range();
+        unsigned sz = m_bv_util.get_bv_size(s);
+        //unsigned sz = f->get_range()->get_info()->get_parameter(0).get_int();
+        expr* a = to_var(f);
+        result = fresh_var(a, sz);
+        m_bv2sz.insert(result, sz);
+        */
+        //TRACE("bv2lia", tout << "inserted " << mk_pp(a, m()) << " -> " << sz << std::endl;);
+        /*
         return BR_DONE;
+        */
     }
-    */
 
     if (m().is_eq(f)) {
         SASSERT(num == 2);
@@ -126,34 +140,52 @@ expr* bv2lia_rewriter_cfg::fresh_var(expr* t) {
     return fresh_var(t, sz);
 }
 
+// condition 0 <= fresh_var <= sz
 expr* bv2lia_rewriter_cfg::fresh_var(expr* t, unsigned &sz) {
     sz = m_bv_util.get_bv_size(t);
     expr *res;
-    if (m_const2lia.find(t, res)) {
+    if (m_bv2lia.find(t, res)) {
         TRACE("bv2lia", tout << "retrieved " << mk_pp(t, m()) << std::endl;);
         return res;
     }
 
-    res = fresh_var(sz);
+    res = fresh_var(rational::power_of_two(sz) - rational(1));
 
-    TRACE("bv2lia", tout << "adding " << mk_pp(t, m()) << std::endl;);
-    m_const2lia.insert(t, res);
+    TRACE("bv2lia", tout << "adding " << mk_pp(t, m()) << " -> " << mk_pp(res, m()) << std::endl;);
+    m_bv2lia.insert(t, res);
+    TRACE("bv2lia", tout << "adding " << mk_pp(res, m()) << " -> " << mk_pp(t, m()) << std::endl;);
+    m_lia2bv.insert(res, t);
     return res;
 }
 
-expr* bv2lia_rewriter_cfg::fresh_var(unsigned sz) {
+// condition 0 <= fresh_var <= upper
+expr* bv2lia_rewriter_cfg::fresh_var(rational const & upper) {
     expr* res = m_manager.mk_fresh_const("x", m_arith_util.mk_int());
     expr* lcond = m_arith_util.mk_le(m_arith_util.mk_int(0), res);
-    expr* rcond = m_arith_util.mk_le(res, m_arith_util.mk_numeral(power(rational(2), sz) - rational(1), true));
+    expr* rcond = m_arith_util.mk_le(res, m_arith_util.mk_numeral(upper, true));
     expr* side_condition = m_manager.mk_and(lcond, rcond);
-    extra_assertions.push_back(side_condition);
+    m_side_conditions.push_back(side_condition);
     TRACE("bv2lia", tout << "side_condition: " << mk_pp(side_condition, m()) << std::endl;);
     return res;
 }
 
-// TODO
+expr* bv2lia_rewriter_cfg::add_side_condition(expr* t, rational const & upper) {
+    // TODO map fresh var here to stack element for lia2bv rewriter?
+    expr* res = m_manager.mk_fresh_const("x", m_arith_util.mk_int());
+    expr* side_condition1 = m_arith_util.mk_eq(res, t);
+    m_side_conditions.push_back(side_condition1);
+    TRACE("bv2lia", tout << "side_condition1: " << mk_pp(side_condition1, m()) << std::endl;);
+
+    expr* lcond = m_arith_util.mk_le(m_arith_util.mk_int(0), res);
+    expr* rcond = m_arith_util.mk_le(res, m_arith_util.mk_numeral(upper, true));
+    expr* side_condition2 = m_manager.mk_and(lcond, rcond);
+    m_side_conditions.push_back(side_condition2);
+    TRACE("bv2lia", tout << "side_condition2: " << mk_pp(side_condition2, m()) << std::endl;);
+    return res;
+}
+
 void bv2lia_rewriter_cfg::mk_eq(expr * arg1, expr * arg2, expr_ref & result) {
-    TRACE("bv2lia", tout << "mk_eq: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+    //TRACE("bv2lia", tout << "mk_eq: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
 
     expr* lia_x1;
     if(m_bv_util.is_bv(arg1)) {
@@ -173,29 +205,48 @@ void bv2lia_rewriter_cfg::mk_eq(expr * arg1, expr * arg2, expr_ref & result) {
     TRACE("bv2lia", tout << "mk_eq result: " << mk_pp(result, m()) << std::endl;);
 }
 
-// TODO
-// reuse fresh_var for same expr
 void bv2lia_rewriter_cfg::mk_concat(expr * arg1, expr * arg2, expr_ref & result) {
-    SASSERT(m_bv_util.is_bv(arg1));
-    SASSERT(m_bv_util.is_bv(arg2));
-    TRACE("bv2lia", tout << "mk_concat: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+    //TRACE("bv2lia", tout << "mk_concat: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
     unsigned sz_arg1;
-    expr* lia_x1 = fresh_var(arg1, sz_arg1);
+    expr* lia_x1;
+    if(m_bv_util.is_bv(arg1)) {
+        lia_x1 = fresh_var(arg1, sz_arg1);
+    } else {
+        lia_x1 = arg1;
+        // TODO
+        if (!m_bv2sz.find(arg1, sz_arg1)) {
+            TRACE("bv2lia", tout << "not found: " << mk_pp(arg1, m()) << std::endl;);
+            SASSERT(false); // TODO
+        }
+        TRACE("bv2lia", tout << "retrieved size: " << sz_arg1 << std::endl;);
+    }
 
     unsigned sz_arg2;
-    expr* lia_x2 = fresh_var(arg2, sz_arg2);
-    TRACE("bv2lia", tout << "before lexpr " << std::endl;);
+    expr* lia_x2;
+    if(m_bv_util.is_bv(arg2)) {
+        lia_x2 = fresh_var(arg2, sz_arg2);
+    } else {
+        lia_x2 = arg2;
+        if (!m_bv2sz.find(arg2, sz_arg2)) {
+            TRACE("bv2lia", tout << "not found: " << mk_pp(arg2, m()) << std::endl;);
+            SASSERT(false); // TODO
+        }
+        TRACE("bv2lia", tout << "retrieved size: " << sz_arg2 << std::endl;);
+    }
+    //TRACE("bv2lia", tout << "before lexpr " << std::endl;);
 
     //expr* lexpr = fresh_var(sz_arg1 + sz_arg2);
-    expr* rexpr = m_arith_util.mk_add(m_arith_util.mk_mul(lia_x1, m_arith_util.mk_numeral(power(rational(2), sz_arg2), true)), lia_x2);
+    expr* rexpr = m_arith_util.mk_add(m_arith_util.mk_mul(lia_x1, m_arith_util.mk_numeral(rational::power_of_two(sz_arg2), true)), lia_x2);
     //result = m_arith_util.mk_eq(lexpr, rexpr);
-    result = rexpr;
+    //result = rexpr;
+    result = add_side_condition(rexpr, rational::power_of_two(sz_arg1 + sz_arg2) - rational(1));
+    m_bv2sz.insert(result, sz_arg1 + sz_arg2);
+    TRACE("bv2lia", tout << "inserted " << mk_pp(result, m()) << " -> " << sz_arg1 + sz_arg2 << std::endl;);
     TRACE("bv2lia", tout << "mk_concat result: " << mk_pp(result, m()) << std::endl;);
 }
 
-// TODO
 void bv2lia_rewriter_cfg::mk_badd(expr * arg1, expr * arg2, expr_ref & result) {
-    TRACE("bv2lia", tout << "mk_badd: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+    //TRACE("bv2lia", tout << "mk_badd: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
 
     unsigned sz_arg1;
     expr* lia_x1;
@@ -203,8 +254,12 @@ void bv2lia_rewriter_cfg::mk_badd(expr * arg1, expr * arg2, expr_ref & result) {
         lia_x1 = fresh_var(arg1, sz_arg1);
     } else {
         // TODO
-        sz_arg1 = 8;
         lia_x1 = arg1;
+        if (!m_bv2sz.find(arg1, sz_arg1)) {
+            TRACE("bv2lia", tout << "not found: " << mk_pp(arg1, m()) << std::endl;);
+            SASSERT(false); // TODO
+        }
+        TRACE("bv2lia", tout << "retrieved size: " << sz_arg1 << std::endl;);
     }
 
     unsigned sz_arg2;
@@ -213,41 +268,62 @@ void bv2lia_rewriter_cfg::mk_badd(expr * arg1, expr * arg2, expr_ref & result) {
         lia_x2 = fresh_var(arg2, sz_arg2);
     } else {
         // TODO
-        sz_arg2 = 8;
         lia_x2 = arg2;
+        if (!m_bv2sz.find(arg2, sz_arg2)) {
+            TRACE("bv2lia", tout << "not found: " << mk_pp(arg2, m()) << std::endl;);
+            SASSERT(false); // TODO
+        }
+        TRACE("bv2lia", tout << "retrieved size: " << sz_arg2 << std::endl;);
     }
+    TRACE("bv2lia", tout << sz_arg1 << " " << sz_arg2 << std::endl;);
     SASSERT(sz_arg1 == sz_arg2);
     
-    expr* lia_sigma = fresh_var(1);
+    expr* lia_sigma = fresh_var(rational(1));
 
-    expr* mul = m_arith_util.mk_mul(m_arith_util.mk_numeral(power(rational(2), sz_arg1), true), lia_sigma);
+    expr* mul = m_arith_util.mk_mul(m_arith_util.mk_numeral(rational::power_of_two(sz_arg1), true), lia_sigma);
     expr* sub = m_arith_util.mk_sub(lia_x2, mul);
-    result = m_arith_util.mk_add(lia_x1, sub);
+    expr* add = m_arith_util.mk_add(lia_x1, sub);
+
+    // TODO add to all the artithmetic operations
+    result = add_side_condition(add, rational::power_of_two(sz_arg1) - rational(1));
+    m_bv2sz.insert(result, sz_arg1);
+    TRACE("bv2lia", tout << "inserted " << mk_pp(result, m()) << " -> " << sz_arg1 << std::endl;);
     TRACE("bv2lia", tout << "mk_bvadd result: " << mk_pp(result, m()) << std::endl;);
 }
 
-// TODO
 void bv2lia_rewriter_cfg::mk_uleq(expr * arg1, expr * arg2, expr_ref & result) {
-    TRACE("bv2lia", tout << "mk_uleq: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+    //TRACE("bv2lia", tout << "mk_uleq: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
 
     unsigned sz_arg1;
     expr* lia_x1;
+    // TODO always generate a new fresh var and add side conditions as in
+    // Griggio `11
     if(m_bv_util.is_bv(arg1)) {
         lia_x1 = fresh_var(arg1, sz_arg1);
     } else {
         // TODO
-        sz_arg1 = 8;
         lia_x1 = arg1;
+        if (!m_bv2sz.find(arg1, sz_arg1)) {
+            SASSERT(false); // TODO
+            TRACE("bv2lia", tout << "not found: " << mk_pp(arg1, m()) << std::endl;);
+        }
+        TRACE("bv2lia", tout << "retrieved size: " << sz_arg1 << std::endl;);
     }
 
     unsigned sz_arg2;
     expr* lia_x2;
+    // TODO always generate a new fresh var and add side conditions as in
+    // Griggio `11
     if(m_bv_util.is_bv(arg2)) {
         lia_x2 = fresh_var(arg2, sz_arg2);
     } else {
         // TODO
-        sz_arg2 = 8;
         lia_x2 = arg2;
+        if (!m_bv2sz.find(arg2, sz_arg2)) {
+            SASSERT(false); // TODO
+            TRACE("bv2lia", tout << "not found: " << mk_pp(arg2, m()) << std::endl;);
+        }
+        TRACE("bv2lia", tout << "retrieved size: " << sz_arg2 << std::endl;);
     }
     SASSERT(sz_arg1 == sz_arg2);
 
@@ -257,9 +333,14 @@ void bv2lia_rewriter_cfg::mk_uleq(expr * arg1, expr * arg2, expr_ref & result) {
 }
 
 void bv2lia_rewriter_cfg::mk_bv_num(func_decl * arg1, expr_ref & result) {
-    rational val = arg1->get_parameter(0).get_rational();
-    TRACE("bv2lia", tout << "mk_bv_num:" << val << std::endl;);
-    result = m_arith_util.mk_numeral(val, true);
+    //expr* n = to_int(arg1->get_parameter(0));
+    //TRACE("bv2lia", tout << "mk_bv_num:" << val << std::endl;);
+    rational v  = arg1->get_parameter(0).get_rational();
+    unsigned sz = arg1->get_parameter(1).get_int();
+    result = m_arith_util.mk_numeral(v, true);
+    m_bv2sz.insert(result, sz);
+    TRACE("bv2lia", tout << "inserted " << mk_pp(result, m()) << " -> " << sz << std::endl;);
+    TRACE("bv2lia", tout << "mk_bv_num result:" << result << std::endl;);
 }
 
 expr* bv2lia_rewriter_cfg::mk_extend(unsigned sz, expr* b, bool is_signed) {
@@ -306,17 +387,11 @@ bool bv2lia_rewriter_cfg::is_zero(expr* n) {
 
 bool bv2lia_rewriter_cfg::pre_visit(expr * t)
 {
-    TRACE("bv2lia_rw_q", tout << "pre_visit: " << mk_ismt2_pp(t, m()) << std::endl;);
+    TRACE("bv2lia", tout << "pre_visit: " << mk_ismt2_pp(t, m()) << std::endl;);
 
-    if (is_quantifier(t)) {
-        quantifier * q = to_quantifier(t);
-        TRACE("bv2lia_rw_q", tout << "pre_visit quantifier [" << q->get_id() << "]: " << mk_ismt2_pp(q->get_expr(), m()) << std::endl;);
-        sort_ref_vector new_bindings(m_manager);
-        for (unsigned i = 0; i < q->get_num_decls(); i++)
-            new_bindings.push_back(q->get_decl_sort(i));
-        SASSERT(new_bindings.size() == q->get_num_decls());
-        m_bindings.append(new_bindings);
-    }
+    // TODO is this info in func_decl * f?
+    m_stack.push_back(t);
+
     return true;
 }
 

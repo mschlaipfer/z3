@@ -6,6 +6,7 @@ z3_add_component(rewriter
     bool_rewriter.cpp
     bv_rewriter.cpp
     bv2lia_rewriter.cpp
+    lia2bv_rewriter.cpp
     datatype_rewriter.cpp
     der.cpp
     dl_rewriter.cpp

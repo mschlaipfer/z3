@@ -27,7 +27,11 @@ class bv2lia_rewriter_cfg : public default_rewriter_cfg {
     sort_ref_vector                          m_bindings;
     bv_util                                  m_bv_util;
     arith_util                               m_arith_util;
-    obj_map<expr, expr*>                     m_const2lia;
+    obj_map<expr, expr*>                     m_bv2lia;
+    obj_map<expr, expr*>                     m_lia2bv; // beta in [Griggio '11]
+    expr_ref_vector                          m_side_conditions;
+    expr_ref_vector                          m_stack;
+    obj_map<expr, unsigned>                  m_bv2sz;
 
 public:
     bv2lia_rewriter_cfg(ast_manager & m, params_ref const & p);
@@ -51,7 +55,9 @@ public:
 
     bool reduce_var(var * t, expr_ref & result, proof_ref & result_pr);
 
-    expr_ref_vector extra_assertions;
+    obj_map<expr, expr*> get_lia2bv() { return m_lia2bv; };
+
+    expr_ref_vector get_side_conditions() { return m_side_conditions; };
 
 private:
     void mk_eq(expr * arg1, expr * arg2, expr_ref & result);
@@ -92,7 +98,9 @@ private:
 
     expr*     fresh_var(expr* t);
     expr*     fresh_var(expr* t, unsigned &sz);
-    expr*     fresh_var(unsigned sz);
+    expr*     fresh_var(rational const & upper);
+
+    expr*     add_side_condition(expr* t, rational const & upper);
 };
 
 
