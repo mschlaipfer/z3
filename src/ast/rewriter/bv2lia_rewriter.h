@@ -60,11 +60,11 @@ public:
     expr_ref_vector get_side_conditions() { return m_side_conditions; };
 
 private:
-    void mk_eq(expr * arg1, expr * arg2, expr_ref & result);
-    void mk_concat(expr * arg1, expr * arg2, expr_ref & result);
-    void mk_badd(expr * arg1, expr * arg2, expr_ref & result);
-    void mk_uleq(expr * arg1, expr * arg2, expr_ref & result);
-    void mk_bv_num(func_decl * arg1, expr_ref & result);
+    void reduce_eq(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_concat(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_badd(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_uleq(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_bv_num(func_decl * arg1, expr_ref & result);
     /*
     br_status mk_ite(expr* c, expr* s, expr* t, expr_ref& result);
     br_status mk_le(expr * arg1, expr * arg2, expr_ref & result);
@@ -82,19 +82,6 @@ private:
     br_status mk_sub(expr* s, expr* t, expr_ref& result);
     br_status mk_uminus(expr* e, expr_ref & result); 
     */
-
-    bool      is_bv2int(expr* e, expr_ref& s);
-    bool      is_sbv2int(expr* e, expr_ref& s);
-    bool      is_bv2int_diff(expr* e, expr_ref& s, expr_ref& t);
-    bool      is_zero(expr* e);
-    bool      is_shl1(expr* e, expr_ref& s);
-
-    expr*     mk_bv_add(expr* s, expr* t, bool is_signed);
-    expr*     mk_bv_mul(expr* s, expr* t, bool is_signed);
-    expr*     mk_sbv2int(expr* s);
-    expr*     mk_extend(unsigned sz, expr* b, bool is_signed);
-
-    void      align_sizes(expr_ref& s, expr_ref& t, bool is_signed);
 
     expr*     fresh_var(expr* t);
     expr*     fresh_var(expr* t, unsigned &sz);
