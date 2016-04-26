@@ -132,7 +132,7 @@ bool rewriter_tpl<Config>::visit(expr * t, unsigned max_depth) {
 #endif
         expr * r = get_cached(t);
         if (r) {
-            SASSERT(m().get_sort(r) == m().get_sort(t));
+            //SASSERT(m().get_sort(r) == m().get_sort(t));
             result_stack().push_back(r);
             set_new_child_flag(t, r);
             if (ProofGen) {

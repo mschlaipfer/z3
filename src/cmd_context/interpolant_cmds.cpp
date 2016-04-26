@@ -155,8 +155,6 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, obj
     params_ref p;
     ast_manager &_m = ctx.m();
 
-    TRACE("lia2bv", tout << "compute_interpolant_and_maybe_check\n"; m_params.display(tout, ":use-bv2lia"); tout << "\n";);
-    TRACE("lia2bv", tout << "compute_interpolant_and_maybe_check: " << mk_pp(t, ctx.m()) << "\n";);
     // TODO: the following is a HACK to enable proofs in the old smt solver
     // When we stop using that solver, this hack can be removed
     scoped_proof_mode spm(_m,PGM_FINE);
@@ -175,7 +173,10 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, obj
         res = iz3interpolate(_m, *sp.get(), t, cnsts, interps, m, 0);
         if (m_params.get_bool(":use-bv2lia", false)) {
             TRACE("lia2bv", tout << "rewrite LIA interpolant(s) to BV" << std::endl;);
+
+            // TODO produce proofs?
             lia2bv_rewriter lia2bv_rw = lia2bv_rewriter(ctx.m(), m_params);
+
             lia2bv_rw.cfg().set_lia2bv(&beta);
             for(ptr_vector<ast>::iterator it = interps.begin(); it != interps.end(); ++it) {
                 TRACE("lia2bv", tout << "interp it: " << mk_pp(*it, ctx.m()) << std::endl;);

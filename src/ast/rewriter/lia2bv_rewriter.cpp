@@ -70,7 +70,8 @@ br_status lia2bv_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
     if (m().is_eq(f)) {
         SASSERT(num == 2);
         if (m_arith_util.is_int(args[0])) {
-            reduce_eq(args[0], args[1], result);
+            // TODO bit-width from context
+            reduce_eq(args[0], args[1], 8, result);
             return BR_DONE;
         }
         return BR_FAILED;
@@ -86,8 +87,17 @@ br_status lia2bv_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
         }
         return BR_FAILED;
     }*/
+    TRACE("lia2bv", tout << "get_lia2bv:" << std::endl;
+    for (obj_map<expr, expr*>::iterator it = m_lia2bv->begin(); it != m_lia2bv->end(); ++it) {
+        tout << mk_pp(it->m_key, m()) << " -> " << mk_ismt2_pp(it->m_value, m()) << std::endl;
+        tout << mk_ismt2_pp(it->m_value, m()) << " sz: " << m_bv_util.get_bv_size(it->m_value) << std::endl;
+    }
+    );
+
+    
 
     if (f->get_family_id() == m_arith_util.get_family_id()) {
+        unsigned sz;
         switch (f->get_decl_kind()) {
         case OP_NUM:
             SASSERT(num == 0);
@@ -96,18 +106,17 @@ br_status lia2bv_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
             return BR_FAILED;
         case OP_ADD:
             // TODO support varargs?
-            reduce_add(args[0], args[1], result);
+            beta_sz(args[0], args[1], sz);
+            reduce_add(args[0], args[1], sz, result);
             return BR_DONE;
-        /*
-        case OP_BMUL:
-            if (!m_blast_mul)
-                return BR_FAILED;
-            reduce_mul(num, args, result);
+        case OP_MUL:
+            beta_sz(args[0], args[1], sz);
+            reduce_mul(args[0], args[1], sz, result);
             return BR_DONE;
-        */
         case OP_LE:
             SASSERT(num == 2);
-            reduce_le(args[0], args[1], 8, result);
+            beta_sz(args[0], args[1], sz);
+            reduce_le(args[0], args[1], sz, result);
             return BR_DONE;
         // TODO
         default:
@@ -118,6 +127,38 @@ br_status lia2bv_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
     }
 
     return BR_FAILED;
+}
+
+// TODO sz and numeral handling unnecessarily messy?
+void lia2bv_rewriter_cfg::beta_sz(expr * arg1, expr * arg2, unsigned & sz) {
+    TRACE("lia2bv", tout << "beta_sz: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+    rational val1, val2;
+    if (!m_arith_util.is_numeral(arg1, val1) && !m_arith_util.is_numeral(arg2, val2)) {
+        unsigned sz1;
+        sz1 = m_bv_util.get_bv_size(arg1);
+        TRACE("lia2bv", tout << "sz1: " << sz1 << std::endl;);
+        
+        unsigned sz2;
+        sz2 = m_bv_util.get_bv_size(arg2);
+        TRACE("lia2bv", tout << "sz2: " << sz2 << std::endl;);
+        SASSERT(sz1 == sz2);
+
+        sz = sz1;
+        return;
+    } else if (!m_arith_util.is_numeral(arg1, val1)) {
+        sz = m_bv_util.get_bv_size(arg1);
+        TRACE("lia2bv", tout << "sz: " << sz << std::endl;);
+        return;
+    } else if (!m_arith_util.is_numeral(arg2, val2)) {
+        sz = m_bv_util.get_bv_size(arg2);
+        TRACE("lia2bv", tout << "sz: " << sz << std::endl;);
+        return;
+    }
+
+    TRACE("lia2bv", tout << "both numeral" << std::endl;);
+    // both not numeral
+    // TODO round max(arg1, arg2) to next highest power of two and then log_2
+    sz = 16;
 }
 
 void lia2bv_rewriter_cfg::beta(expr * t, unsigned sz, expr_ref & result) {
@@ -133,23 +174,51 @@ void lia2bv_rewriter_cfg::beta(expr * t, unsigned sz, expr_ref & result) {
     SASSERT(m_bv_util.is_bv(result));
 }
 
-// TODO
-void lia2bv_rewriter_cfg::reduce_eq(expr * arg1, expr * arg2, expr_ref & result) {
+void lia2bv_rewriter_cfg::reduce_eq(expr * arg1, expr * arg2, unsigned sz, expr_ref & result) {
+    TRACE("lia2bv", tout << "reduce_eq: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+
+    expr_ref bv_arg1(m());
+    beta(arg1, sz, bv_arg1);
+
+    expr_ref bv_arg2(m());
+    beta(arg2, sz, bv_arg2);
+
+    TRACE("lia2bv", tout << "reduce_eq: " << mk_pp(bv_arg1, m()) << ", " << mk_pp(bv_arg2, m()) << std::endl;);
+    result = m().mk_eq(bv_arg1, bv_arg2);
+    TRACE("lia2bv", tout << "reduce_eq: " << mk_pp(result, m()) << std::endl;);
 }
 
-// TODO
-void lia2bv_rewriter_cfg::reduce_add(expr * arg1, expr * arg2, expr_ref & result) {
+void lia2bv_rewriter_cfg::reduce_add(expr * arg1, expr * arg2, unsigned sz, expr_ref & result) {
+    TRACE("lia2bv", tout << "reduce_add: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+
+    expr_ref bv_arg1(m());
+    beta(arg1, sz, bv_arg1);
+
+    expr_ref bv_arg2(m());
+    beta(arg2, sz, bv_arg2);
+
+    TRACE("lia2bv", tout << "reduce_add: " << mk_pp(bv_arg1, m()) << ", " << mk_pp(bv_arg2, m()) << std::endl;);
+    result = m_bv_util.mk_bv_add(bv_arg1, bv_arg2);
+    TRACE("lia2bv", tout << "reduce_add: " << mk_pp(result, m()) << std::endl;);
 }
 
-// TODO
+void lia2bv_rewriter_cfg::reduce_mul(expr * arg1, expr * arg2, unsigned sz, expr_ref & result) {
+    TRACE("lia2bv", tout << "reduce_mul: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+
+    expr_ref bv_arg1(m());
+    beta(arg1, sz, bv_arg1);
+
+    expr_ref bv_arg2(m());
+    beta(arg2, sz, bv_arg2);
+
+    TRACE("lia2bv", tout << "reduce_mul: " << mk_pp(bv_arg1, m()) << ", " << mk_pp(bv_arg2, m()) << std::endl;);
+    result = m_bv_util.mk_bv_mul(bv_arg1, bv_arg2);
+    TRACE("lia2bv", tout << "reduce_mul: " << mk_pp(result, m()) << std::endl;);
+}
+
 void lia2bv_rewriter_cfg::reduce_le(expr * arg1, expr * arg2, unsigned sz, expr_ref & result) {
     TRACE("lia2bv", tout << "reduce_le: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
 
-    TRACE("lia2bv", tout << "get_lia2bv:" << std::endl;
-    for (obj_map<expr, expr*>::iterator it = m_lia2bv->begin(); it != m_lia2bv->end(); ++it) {
-        tout << mk_pp(it->m_key, m()) << " -> " << mk_ismt2_pp(it->m_value, m()) << std::endl;
-    }
-    );
     expr_ref bv_arg1(m());
     beta(arg1, sz, bv_arg1);
 
@@ -159,7 +228,6 @@ void lia2bv_rewriter_cfg::reduce_le(expr * arg1, expr * arg2, unsigned sz, expr_
     TRACE("lia2bv", tout << "reduce_le: " << mk_pp(bv_arg1, m()) << ", " << mk_pp(bv_arg2, m()) << std::endl;);
     result = m_bv_util.mk_ule(bv_arg1, bv_arg2);
     TRACE("lia2bv", tout << "reduce_le: " << mk_pp(result, m()) << std::endl;);
-    //SASSERT(m_bv_util.is_bv(result));
 }
 
 void lia2bv_rewriter_cfg::reduce_num(func_decl * arg1, expr_ref & result) {
@@ -171,17 +239,6 @@ void lia2bv_rewriter_cfg::reduce_num(func_decl * arg1, expr_ref & result) {
 
 bool lia2bv_rewriter_cfg::pre_visit(expr * t)
 {
-    TRACE("lia2bv_rw_q", tout << "pre_visit: " << mk_ismt2_pp(t, m()) << std::endl;);
-
-    if (is_quantifier(t)) {
-        quantifier * q = to_quantifier(t);
-        TRACE("lia2bv_rw_q", tout << "pre_visit quantifier [" << q->get_id() << "]: " << mk_ismt2_pp(q->get_expr(), m()) << std::endl;);
-        sort_ref_vector new_bindings(m_manager);
-        for (unsigned i = 0; i < q->get_num_decls(); i++)
-            new_bindings.push_back(q->get_decl_sort(i));
-        SASSERT(new_bindings.size() == q->get_num_decls());
-        m_bindings.append(new_bindings);
-    }
     return true;
 }
 
