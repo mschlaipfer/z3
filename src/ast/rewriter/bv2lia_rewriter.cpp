@@ -69,9 +69,8 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
         unsigned sz = m_bv_util.get_bv_size(s);
         result = fresh_var(m().mk_const(f), sz);
         m_bv2sz.insert(result, sz);
-        //TRACE("bv2lia", tout << "inserted " << mk_pp(a, m()) << " -> " << sz << std::endl;);
-        TRACE("bv2lia", tout << "inserted " << mk_pp(f, m()) << " -> " << sz << std::endl;);
-        TRACE("bv2lia", tout << "inserted " << mk_pp(result, m()) << " -> " << sz << std::endl;);
+        TRACE("bv2lia", tout << "lia var " << mk_pp(result, m()) << " -> bv var (" << f->get_name() << sz << ")" << std::endl;);
+        m_lia2bv.insert(result, stack_el);
         return BR_DONE;
     }
 
@@ -88,17 +87,19 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
             SASSERT(num == 0);
             reduce_bv_num(f, result);
             return BR_DONE;
+        case OP_ULEQ:
+            SASSERT(num == 2);
+            reduce_uleq(args[0], args[1], result);
+            return BR_DONE;
         case OP_BADD:
             // TODO support varargs?
             reduce_badd(args[0], args[1], result);
+            m_lia2bv.insert(result, stack_el);
             return BR_DONE;
         case OP_CONCAT:
             SASSERT(num == 2);
             reduce_concat(args[0], args[1], result);
-            return BR_DONE;
-        case OP_ULEQ:
-            SASSERT(num == 2);
-            reduce_uleq(args[0], args[1], result);
+            m_lia2bv.insert(result, stack_el);
             return BR_DONE;
         // TODO operator support
         default:
@@ -129,8 +130,8 @@ expr* bv2lia_rewriter_cfg::fresh_var(expr* t, unsigned &sz) {
 
     TRACE("bv2lia", tout << "adding " << mk_pp(t, m()) << " -> " << mk_pp(res, m()) << std::endl;);
     m_bv2lia.insert(t, res);
-    TRACE("bv2lia", tout << "adding " << mk_pp(res, m()) << " -> " << mk_pp(t, m()) << std::endl;);
-    m_lia2bv.insert(res, t);
+    //TRACE("bv2lia", tout << "adding " << mk_pp(res, m()) << " -> " << mk_pp(t, m()) << std::endl;);
+    //m_lia2bv.insert(res, t);
     return res;
 }
 

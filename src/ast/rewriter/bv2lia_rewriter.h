@@ -55,9 +55,9 @@ public:
 
     bool reduce_var(var * t, expr_ref & result, proof_ref & result_pr);
 
-    obj_map<expr, expr*> get_lia2bv() { return m_lia2bv; };
+    obj_map<expr, expr*> const& get_lia2bv() const { return m_lia2bv; };
 
-    expr_ref_vector get_side_conditions() { return m_side_conditions; };
+    expr_ref_vector const& get_side_conditions() const { return m_side_conditions; };
 
 private:
     void reduce_eq(expr * arg1, expr * arg2, expr_ref & result);

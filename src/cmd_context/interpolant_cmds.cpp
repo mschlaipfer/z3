@@ -148,15 +148,15 @@ static void get_and_check_interpolant(cmd_context & ctx, params_ref &m_params, e
 }
 #endif
 
-static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, params_ref &m_params, bool check){
+static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, obj_map<expr, expr*> &beta, params_ref &m_params, bool check){
     
     // create a fresh solver suitable for interpolation
     bool proofs_enabled, models_enabled, unsat_core_enabled;
     params_ref p;
     ast_manager &_m = ctx.m();
 
-    TRACE("bv2lia", tout << "compute_interpolant_and_maybe_check\n"; m_params.display(tout, ":use-bv2lia"); tout << "\n";);
-    TRACE("bv2lia", tout << "compute_interpolant_and_maybe_check: " << mk_pp(t, ctx.m()) << "\n";);
+    TRACE("lia2bv", tout << "compute_interpolant_and_maybe_check\n"; m_params.display(tout, ":use-bv2lia"); tout << "\n";);
+    TRACE("lia2bv", tout << "compute_interpolant_and_maybe_check: " << mk_pp(t, ctx.m()) << "\n";);
     // TODO: the following is a HACK to enable proofs in the old smt solver
     // When we stop using that solver, this hack can be removed
     scoped_proof_mode spm(_m,PGM_FINE);
@@ -165,7 +165,7 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, par
     scoped_ptr<solver> sp = (ctx.get_interpolating_solver_factory())(_m, p, true, models_enabled, false, ctx.get_logic());
 
     ptr_vector<ast> cnsts;
-    ptr_vector<ast> interps;
+    ptr_vector<ast> interps, interps_rw;
     model_ref m;
   
     // compute an interpolant
@@ -174,14 +174,17 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, par
     try {
         res = iz3interpolate(_m, *sp.get(), t, cnsts, interps, m, 0);
         if (m_params.get_bool(":use-bv2lia", false)) {
-            TRACE("bv2lia", tout << "rewrite LIA interpolant(s) to BV" << std::endl;);
+            TRACE("lia2bv", tout << "rewrite LIA interpolant(s) to BV" << std::endl;);
             lia2bv_rewriter lia2bv_rw = lia2bv_rewriter(ctx.m(), m_params);
+            lia2bv_rw.cfg().set_lia2bv(&beta);
             for(ptr_vector<ast>::iterator it = interps.begin(); it != interps.end(); ++it) {
-                TRACE("bv2lia", tout << "interp it: " << mk_pp(*it, ctx.m()) << std::endl;);
-                //bv2lia_rw.reset();
-                //expr_ref res(ctx.m());
-                //bv2lia_rw(a, a->get_num_args(), a->get_args(), res);
-                //TRACE("bv2lia", tout << "after lia2bv rewrite expr: " << mk_pp(res, ctx.m()) << std::endl;);
+                TRACE("lia2bv", tout << "interp it: " << mk_pp(*it, ctx.m()) << std::endl;);
+                app *a = to_app(*it);
+                expr_ref *res_itp = new expr_ref(ctx.m());
+                lia2bv_rw(a, a->get_num_args(), a->get_args(), *res_itp);
+                interps_rw.push_back(*res_itp);
+                TRACE("lia2bv", tout << "bv itp candidate: " << mk_pp(*res_itp, ctx.m()) << std::endl;);
+                //delete res_itp;
             }
 
         }
@@ -193,7 +196,15 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, par
     switch(res){
     case l_false:
         ctx.regular_stream() << "unsat\n";
-        show_interpolant_and_maybe_check(ctx, cnsts, t, interps, m_params, check);
+        if (m_params.get_bool(":use-bv2lia", false)) {
+            show_interpolant_and_maybe_check(ctx, cnsts, t, interps_rw, m_params, check);
+            // TODO maybe find better spot for cleanup
+            for(unsigned i = 0; i < interps.size(); i++){
+                ctx.m().dec_ref(interps[i]);
+            }
+        } else {
+            show_interpolant_and_maybe_check(ctx, cnsts, t, interps, m_params, check);
+        }
         break;
 
     case l_true:
@@ -252,14 +263,23 @@ static void compute_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs
             TRACE("bv2lia", tout << "after rewrite expr: " << mk_pp(*res, ctx.m()) << std::endl;);
             TRACE("bv2lia", tout << "with side conditions: " << mk_pp(lia_and, ctx.m()) << std::endl;);
         }
+
+        obj_map<expr, expr*> beta = bv2lia_rw.cfg().get_lia2bv();
+        TRACE("lia2bv", tout << "get_lia2bv:" << std::endl;
+        for (obj_map<expr, expr*>::iterator it = beta.begin(); it != beta.end(); ++it) {
+            tout << mk_pp(it->m_key, ctx.m()) << " -> " << mk_ismt2_pp(it->m_value, ctx.m()) << std::endl;
+        }
+        );
         expr_ref foo(make_tree(ctx, lia_exprs),ctx.m());
-        compute_interpolant_and_maybe_check(ctx,foo.get(),m_params,false);
+        compute_interpolant_and_maybe_check(ctx,foo.get(),beta,m_params,false);
         for (ptr_vector<expr_ref>::iterator it = tmp.begin(); it != tmp.end(); ++it){
             delete *it;
         }
     } else {
+        // TODO
+        obj_map<expr, expr*> beta;
         expr_ref foo(make_tree(ctx, exprs),ctx.m());
-        compute_interpolant_and_maybe_check(ctx,foo.get(),m_params,false);
+        compute_interpolant_and_maybe_check(ctx,foo.get(),beta,m_params,false);
     }
 }
 
