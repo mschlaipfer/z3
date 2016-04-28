@@ -28,6 +28,7 @@ class lia2bv_rewriter_cfg : public default_rewriter_cfg {
     bv_util                                  m_bv_util;
     arith_util                               m_arith_util;
     obj_map<expr, expr*>                   * m_lia2bv;
+    obj_map<func_decl, func_decl*>         * m_uf2bvop;
 
 public:
     lia2bv_rewriter_cfg(ast_manager & m, params_ref const & p);
@@ -53,12 +54,17 @@ public:
 
     void set_lia2bv(obj_map<expr, expr*> * beta) { m_lia2bv = beta; };
 
+    void set_uf2bvop(obj_map<func_decl, func_decl*> * beta) { m_uf2bvop = beta; };
+
 private:
+    void reduce_num(func_decl * arg1, expr_ref & result);
     void reduce_eq(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_add(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_mul(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_le(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
-    void reduce_num(func_decl * arg1, expr_ref & result);
+    void reduce_ge(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
+    void reduce_lt(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
+    void reduce_gt(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
 
     void beta(expr * t, unsigned sz, expr_ref & result);
     void beta_sz(expr * arg1, expr * arg2, unsigned & sz);

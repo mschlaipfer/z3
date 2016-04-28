@@ -28,10 +28,14 @@ class bv2lia_rewriter_cfg : public default_rewriter_cfg {
     bv_util                                  m_bv_util;
     arith_util                               m_arith_util;
     obj_map<expr, expr*>                     m_bv2lia;
+    obj_map<func_decl, func_decl*>           m_bvop2uf;
     obj_map<expr, expr*>                     m_lia2bv; // beta in [Griggio '11]
+    obj_map<func_decl, func_decl*>           m_uf2bvop;
     expr_ref_vector                          m_side_conditions;
     expr_ref_vector                          m_stack;
     obj_map<expr, unsigned>                  m_bv2sz;
+    sort                                   * int_sort;
+    func_decl                              * f_mul;
 
 public:
     bv2lia_rewriter_cfg(ast_manager & m, params_ref const & p);
@@ -57,12 +61,15 @@ public:
 
     obj_map<expr, expr*> const& get_lia2bv() const { return m_lia2bv; };
 
+    obj_map<func_decl, func_decl*> const& get_uf2bvop() const { return m_uf2bvop; };
+
     expr_ref_vector const& get_side_conditions() const { return m_side_conditions; };
 
 private:
     void reduce_eq(expr * arg1, expr * arg2, expr_ref & result);
     void reduce_concat(expr * arg1, expr * arg2, expr_ref & result);
     void reduce_badd(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_mul(func_decl * f, expr * arg1, expr * arg2, expr_ref & result);
     void reduce_uleq(expr * arg1, expr * arg2, expr_ref & result);
     void reduce_bv_num(func_decl * arg1, expr_ref & result);
     /*
@@ -87,6 +94,8 @@ private:
     expr*     fresh_var(expr* t, unsigned &sz);
     expr*     fresh_var(rational const & upper);
 
+    func_decl* fresh_func(func_decl* f);
+    
     expr*     add_side_condition(expr* t, rational const & upper);
 };
 

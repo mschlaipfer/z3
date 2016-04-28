@@ -100,7 +100,7 @@ struct iz3checker : iz3base {
                 s->assert_expr(to_expr(mk_not(itp[i]).raw()));
             lbool result = s->check_sat(0,0);
             if(result != l_false){
-                err << "interpolant " << i << " is incorrect";
+                err << "interpolant " << i << " is incorrect" << std::endl;
 
                 s->pop(1);
                 for(unsigned j = 0; j < theory.size(); j++)
@@ -112,7 +112,7 @@ struct iz3checker : iz3base {
                     s->assert_expr(to_expr(mk_not(itp[i]).raw()));
                 lbool result = s->check_sat(0,0);
                 if(result != l_false)
-                    err << "interpolant " << i << " is not implied by its downeard closurn";
+                    err << "interpolant " << i << " is not implied by its downward closure" << std::endl;
 
                 return false;
             }

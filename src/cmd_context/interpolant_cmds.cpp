@@ -66,6 +66,8 @@ static void show_interpolant_and_maybe_check(cmd_context & ctx,
 
     s.cleanup();
 
+    TRACE("lia2bv", tout << "check: " << check << std::endl;);
+
     // verify, for the paranoid...
     if(check || interp_params(m_params).check()){
         std::ostringstream err;
@@ -148,7 +150,7 @@ static void get_and_check_interpolant(cmd_context & ctx, params_ref &m_params, e
 }
 #endif
 
-static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, obj_map<expr, expr*> &beta, params_ref &m_params, bool check){
+static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, obj_map<expr, expr*> &lia2bv, obj_map<func_decl, func_decl*> &uf2bvop, params_ref &m_params, bool check){
     
     // create a fresh solver suitable for interpolation
     bool proofs_enabled, models_enabled, unsat_core_enabled;
@@ -177,7 +179,8 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, obj
             // TODO produce proofs?
             lia2bv_rewriter lia2bv_rw = lia2bv_rewriter(ctx.m(), m_params);
 
-            lia2bv_rw.cfg().set_lia2bv(&beta);
+            lia2bv_rw.cfg().set_lia2bv(&lia2bv);
+            lia2bv_rw.cfg().set_uf2bvop(&uf2bvop);
             for(ptr_vector<ast>::iterator it = interps.begin(); it != interps.end(); ++it) {
                 TRACE("lia2bv", tout << "interp it: " << mk_pp(*it, ctx.m()) << std::endl;);
                 app *a = to_app(*it);
@@ -265,22 +268,28 @@ static void compute_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs
             TRACE("bv2lia", tout << "with side conditions: " << mk_pp(lia_and, ctx.m()) << std::endl;);
         }
 
-        obj_map<expr, expr*> beta = bv2lia_rw.cfg().get_lia2bv();
+        obj_map<expr, expr*> lia2bv = bv2lia_rw.cfg().get_lia2bv();
+        obj_map<func_decl, func_decl*> uf2bvop = bv2lia_rw.cfg().get_uf2bvop();
         TRACE("lia2bv", tout << "get_lia2bv:" << std::endl;
-        for (obj_map<expr, expr*>::iterator it = beta.begin(); it != beta.end(); ++it) {
+        for (obj_map<expr, expr*>::iterator it = lia2bv.begin(); it != lia2bv.end(); ++it) {
+            tout << mk_pp(it->m_key, ctx.m()) << " -> " << mk_ismt2_pp(it->m_value, ctx.m()) << std::endl;
+        }
+        tout << "get_uf2bvop:" << std::endl;
+        for (obj_map<func_decl, func_decl*>::iterator it = uf2bvop.begin(); it != uf2bvop.end(); ++it) {
             tout << mk_pp(it->m_key, ctx.m()) << " -> " << mk_ismt2_pp(it->m_value, ctx.m()) << std::endl;
         }
         );
         expr_ref foo(make_tree(ctx, lia_exprs),ctx.m());
-        compute_interpolant_and_maybe_check(ctx,foo.get(),beta,m_params,false);
+        compute_interpolant_and_maybe_check(ctx,foo.get(),lia2bv,uf2bvop,m_params,false);
         for (ptr_vector<expr_ref>::iterator it = tmp.begin(); it != tmp.end(); ++it){
             delete *it;
         }
     } else {
         // TODO
-        obj_map<expr, expr*> beta;
+        obj_map<expr, expr*> ph1;
+        obj_map<func_decl, func_decl*> ph2;
         expr_ref foo(make_tree(ctx, exprs),ctx.m());
-        compute_interpolant_and_maybe_check(ctx,foo.get(),beta,m_params,false);
+        compute_interpolant_and_maybe_check(ctx,foo.get(),ph1,ph2,m_params,false);
     }
 }
 
