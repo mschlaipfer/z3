@@ -260,13 +260,18 @@ void bv2lia_rewriter_cfg::reduce_mul(func_decl * f, expr * arg1, expr * arg2, ex
     rational val1, val2;
     if (!m_arith_util.is_numeral(arg1, val1) && !m_arith_util.is_numeral(arg2, val2)) {
         func_decl* f_mul = fresh_func(f);
-        expr* uf = m().mk_app(f_mul, arg1, arg2);
         m_uf2bvop.insert(f_mul, f);
         unsigned sz_arg;
         if (!m_bv2sz.find(arg1, sz_arg)) {
             TRACE("bv2lia", tout << "not found: " << mk_pp(arg1, m()) << std::endl;);
             SASSERT(false);
         }
+        expr* uf = m().mk_app(f_mul, arg1, arg2);
+
+        // commutativity
+        expr* uf2 = m().mk_app(f_mul, arg2, arg1);
+        m_side_conditions.push_back(m().mk_eq(uf, uf2));
+
         result = add_side_condition(uf, rational::power_of_two(sz_arg) - rational(1));
         m_bv2sz.insert(result, sz_arg);
         TRACE("bv2lia", tout << "reduce_mul result: " << mk_pp(result, m()) << std::endl;);
