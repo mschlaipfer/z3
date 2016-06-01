@@ -79,14 +79,10 @@ br_status lia2bv_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
 
     if (m().is_eq(f)) {
         SASSERT(num == 2);
-        // TODO what is going on here?
-        if (m_arith_util.is_int(args[0])) {
-            unsigned sz;
-            beta_sz(args[0], args[1], sz);
-            reduce_eq(args[0], args[1], sz, result);
-            return BR_DONE;
-        }
-        return BR_FAILED;
+        unsigned sz;
+        beta_sz(args[0], args[1], sz);
+        reduce_eq(args[0], args[1], sz, result);
+        return BR_DONE;
     }
 
 
@@ -112,8 +108,10 @@ br_status lia2bv_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
         unsigned sz;
         switch (f->get_decl_kind()) {
         case OP_NUM:
+            // numerals are dealt with in context of the respective operator
+            // we get the bit-width in beta_sz
             SASSERT(num == 0);
-            reduce_num(f, result);
+            //reduce_num(f, sz, result);
             //return BR_DONE;
             return BR_FAILED;
         case OP_ADD:
@@ -326,11 +324,11 @@ void lia2bv_rewriter_cfg::reduce_gt(expr * arg1, expr * arg2, unsigned sz, expr_
     TRACE("lia2bv", tout << "reduce_gt: " << mk_pp(result, m()) << std::endl;);
 }
 
-void lia2bv_rewriter_cfg::reduce_num(func_decl * arg1, expr_ref & result) {
-    //TRACE("lia2bv", tout << "reduce_num: " << arg1->get_parameter(0) << std::endl;);
-    //rational v  = arg1->get_parameter(0).get_rational();
-    //result = m_bv_util.mk_(v, true);
-    //TRACE("lia2bv", tout << "result: " << mk_pp(result, m()) << std::endl;);
+void lia2bv_rewriter_cfg::reduce_num(func_decl * arg1, unsigned sz, expr_ref & result) {
+    TRACE("lia2bv", tout << "reduce_num: " << arg1->get_parameter(0) << std::endl;);
+    rational v  = arg1->get_parameter(0).get_rational();
+    result = m_bv_util.mk_numeral(v, sz);
+    TRACE("lia2bv", tout << "result: " << mk_pp(result, m()) << std::endl;);
 }
 
 bool lia2bv_rewriter_cfg::pre_visit(expr * t)

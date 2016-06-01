@@ -107,7 +107,7 @@ private:
 struct bv2lia_rewriter : public rewriter_tpl<bv2lia_rewriter_cfg> {
     bv2lia_rewriter_cfg m_cfg;
     bv2lia_rewriter(ast_manager & m, params_ref const & p) :
-        rewriter_tpl<bv2lia_rewriter_cfg>(m, m.proofs_enabled(), m_cfg),
+        rewriter_tpl<bv2lia_rewriter_cfg>(m, false,/*m.proofs_enabled(),*/ m_cfg),
         m_cfg(m, p) {
     }
 };

@@ -57,7 +57,7 @@ public:
     void set_uf2bvop(obj_map<func_decl, func_decl*> * beta) { m_uf2bvop = beta; };
 
 private:
-    void reduce_num(func_decl * arg1, expr_ref & result);
+    void reduce_num(func_decl * arg1, unsigned sz, expr_ref & result);
     void reduce_eq(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_add(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_mul(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
