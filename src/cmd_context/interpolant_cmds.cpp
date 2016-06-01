@@ -51,11 +51,14 @@ static void show_interpolant_and_maybe_check(cmd_context & ctx,
   
     for(unsigned i = 0; i < interps.size(); i++){
 
+        /*
         expr_ref r(ctx.m());
         proof_ref pr(ctx.m());
         s(to_expr(interps[i]),r,pr);
 
         ctx.regular_stream()  << mk_pp(r.get(), ctx.m()) << std::endl;
+        */
+        ctx.regular_stream()  << mk_pp(interps[i], ctx.m()) << std::endl;
 #if 0
         ast_smt_pp pp(ctx.m());
         pp.set_logic(ctx.get_logic().str().c_str());
@@ -182,12 +185,12 @@ static void compute_interpolant_and_maybe_check(cmd_context & ctx, expr * t, obj
             lia2bv_rw.cfg().set_lia2bv(&lia2bv);
             lia2bv_rw.cfg().set_uf2bvop(&uf2bvop);
             for(ptr_vector<ast>::iterator it = interps.begin(); it != interps.end(); ++it) {
-                TRACE("lia2bv", tout << "interp it: " << mk_pp(*it, ctx.m()) << std::endl;);
+                TRACE("lia2bv", tout << "LIA itp candidate: " << mk_pp(*it, ctx.m()) << std::endl;);
                 app *a = to_app(*it);
                 expr_ref *res_itp = new expr_ref(ctx.m());
                 lia2bv_rw(a, a->get_num_args(), a->get_args(), *res_itp);
                 interps_rw.push_back(*res_itp);
-                TRACE("lia2bv", tout << "bv itp candidate: " << mk_pp(*res_itp, ctx.m()) << std::endl;);
+                TRACE("lia2bv", tout << "BV itp candidate: " << mk_pp(*res_itp, ctx.m()) << std::endl;);
                 //delete res_itp;
             }
 
@@ -249,10 +252,12 @@ static void compute_interpolant(cmd_context & ctx, const ptr_vector<expr> &exprs
         bv2lia_rewriter bv2lia_rw = bv2lia_rewriter(ctx.m(), m_params);
         ptr_vector<expr_ref> tmp;
         ptr_vector<expr> lia_exprs;
+
         for (ptr_vector<expr>::const_iterator it = exprs.begin(); it != exprs.end(); ++it) {
             bv2lia_rw.reset();
             TRACE("bv2lia", tout << "before rewrite expr: " << mk_pp(*it, ctx.m()) << std::endl;);
             app *a = to_app(*it);
+
             // TODO can I get rid of the obvious allocation here?
             expr_ref *res = new expr_ref(ctx.m());
             bv2lia_rw(a, a->get_num_args(), a->get_args(), *res);

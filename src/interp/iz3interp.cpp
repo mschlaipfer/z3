@@ -227,6 +227,7 @@ public:
                               const std::vector<ast> &theory,
                               interpolation_options_struct *options = 0
                               ){
+        TRACE("iz3interp", tout << "in proof_to_interpolant" << std::endl;);
 #if 0
         test_secondary(cnsts,parents,interps);
         return;

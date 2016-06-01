@@ -67,10 +67,14 @@ public:
 
 private:
     void reduce_eq(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_ite(expr * cond, expr * arg1, expr * arg2, expr_ref & result);
     void reduce_concat(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_extract(func_decl * f, expr * arg1, expr_ref & result);
     void reduce_badd(expr * arg1, expr * arg2, expr_ref & result);
     void reduce_mul(func_decl * f, expr * arg1, expr * arg2, expr_ref & result);
     void reduce_uleq(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_sleq(expr * arg1, expr * arg2, expr_ref & result);
+    void reduce_sgeq(expr * arg1, expr * arg2, expr_ref & result);
     void reduce_bv_num(func_decl * arg1, expr_ref & result);
     /*
     br_status mk_ite(expr* c, expr* s, expr* t, expr_ref& result);

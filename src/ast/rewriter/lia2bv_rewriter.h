@@ -61,6 +61,9 @@ private:
     void reduce_eq(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_add(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_mul(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
+    /*
+    void reduce_div(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
+    */
     void reduce_le(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_ge(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);
     void reduce_lt(expr * arg1, expr * arg2, unsigned sz, expr_ref & result);

@@ -58,7 +58,7 @@ void bv2lia_rewriter_cfg::reset() {
 
 br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * const * args, expr_ref & result, proof_ref & result_pr) {
     result_pr = 0;
-    TRACE("bv2lia", tout << f->get_name() << " ";
+    TRACE("bv2lia", tout << f->get_name() << " (" << num << ") ";
           for (unsigned i = 0; i < num; ++i) tout << mk_pp(args[i], m()) << " ";
           tout << "\n";);
 
@@ -67,8 +67,7 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
     m_stack.pop_back();
 
     if (num == 0 && f->get_family_id() == null_family_id && m_bv_util.is_bv_sort(f->get_range())) {
-        sort * s = f->get_range();
-        unsigned sz = m_bv_util.get_bv_size(s);
+        unsigned sz;
         result = fresh_var(m().mk_const(f), sz);
         m_bv2sz.insert(result, sz);
         TRACE("bv2lia", tout << "lia var " << mk_pp(result, m()) << " -> bv var (" << f->get_name() << sz << ")" << std::endl;);
@@ -76,9 +75,13 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
         return BR_DONE;
     }
 
-    if (m().is_eq(f)) {
+    if (m().is_eq(f) && m_arith_util.is_int(args[0]) && m_arith_util.is_int(args[1])) {
         SASSERT(num == 2);
         reduce_eq(args[0], args[1], result);
+        return BR_DONE;
+    } else if (m().is_ite(f) && m_arith_util.is_int(args[1]) && m_arith_util.is_int(args[2])) {
+        SASSERT(num == 3);
+        reduce_ite(args[0], args[1], args[2], result);
         return BR_DONE;
     }
 
@@ -93,6 +96,24 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
             SASSERT(num == 2);
             reduce_uleq(args[0], args[1], result);
             return BR_DONE;
+        case OP_SLEQ:
+            SASSERT(num == 2);
+            reduce_sleq(args[0], args[1], result);
+            return BR_DONE;
+        case OP_SGT:
+            SASSERT(num == 2);
+            reduce_sleq(args[0], args[1], result);
+            result = m().mk_not(result);
+            return BR_DONE;
+        case OP_SGEQ:
+            SASSERT(num == 2);
+            reduce_sleq(args[1], args[0], result);
+            return BR_DONE;
+        case OP_SLT:
+            SASSERT(num == 2);
+            reduce_sleq(args[1], args[0], result);
+            result = m().mk_not(result);
+            return BR_DONE;
         case OP_BADD:
             // TODO support varargs?
             reduce_badd(args[0], args[1], result);
@@ -106,6 +127,11 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
         case OP_CONCAT:
             SASSERT(num == 2);
             reduce_concat(args[0], args[1], result);
+            m_lia2bv.insert(result, stack_el);
+            return BR_DONE;
+        case OP_EXTRACT:
+            SASSERT(num == 1);
+            reduce_extract(f, args[0], result);
             m_lia2bv.insert(result, stack_el);
             return BR_DONE;
         // TODO operator support
@@ -169,6 +195,7 @@ func_decl* bv2lia_rewriter_cfg::fresh_func(func_decl* f) {
     return res;
 }
 
+// FIXME refactor: how is it different from fresh_var?
 expr* bv2lia_rewriter_cfg::add_side_condition(expr* t, rational const & upper) {
     expr* res = m().mk_fresh_const("x", m_arith_util.mk_int());
     expr* side_condition1 = m_arith_util.mk_eq(res, t);
@@ -190,6 +217,24 @@ void bv2lia_rewriter_cfg::reduce_eq(expr * arg1, expr * arg2, expr_ref & result)
 
     result = m_arith_util.mk_eq(arg1, arg2);
     TRACE("bv2lia", tout << "reduce_eq result: " << mk_pp(result, m()) << std::endl;);
+}
+
+void bv2lia_rewriter_cfg::reduce_ite(expr* cond, expr * arg1, expr * arg2, expr_ref & result) {
+    //TRACE("bv2lia", tout << "reduce_ite: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+    SASSERT(m().is_bool(cond));
+    SASSERT(m_arith_util.is_int(arg1));
+    SASSERT(m_arith_util.is_int(arg2));
+
+    unsigned sz_arg1;
+    if (!m_bv2sz.find(arg1, sz_arg1)) {
+        TRACE("bv2lia", tout << "not found: " << mk_pp(arg1, m()) << std::endl;);
+        SASSERT(false);
+    }
+    TRACE("bv2lia", tout << "retrieved size: " << sz_arg1 << std::endl;);
+
+    result = m().mk_ite(cond, arg1, arg2);
+    m_bv2sz.insert(result, sz_arg1);
+    TRACE("bv2lia", tout << "reduce_ite result: " << mk_pp(result, m()) << std::endl;);
 }
 
 void bv2lia_rewriter_cfg::reduce_concat(expr * arg1, expr * arg2, expr_ref & result) {
@@ -218,6 +263,37 @@ void bv2lia_rewriter_cfg::reduce_concat(expr * arg1, expr * arg2, expr_ref & res
     TRACE("bv2lia", tout << "mk_concat result: " << mk_pp(result, m()) << std::endl;);
 }
 
+void bv2lia_rewriter_cfg::reduce_extract(func_decl * f, expr * arg, expr_ref & result) {
+    int i = f->get_parameter(0).get_int();
+    int j = f->get_parameter(1).get_int();
+    SASSERT(i >= j);
+    TRACE("bv2lia", tout << "reduce_extract: " << mk_pp(arg, m()) << " " << i << " " << j << std::endl;);
+    SASSERT(m_arith_util.is_int(arg));
+
+    int new_sz = i - j + 1;
+
+    unsigned sz_arg;
+    if (!m_bv2sz.find(arg, sz_arg)) {
+        TRACE("bv2lia", tout << "not found: " << mk_pp(arg, m()) << std::endl;);
+        SASSERT(false);
+    }
+    TRACE("bv2lia", tout << "retrieved size: " << sz_arg << std::endl;);
+
+    expr* lia_l = fresh_var(rational::power_of_two(i) - rational(1));
+    expr* lia_m = fresh_var(rational::power_of_two(new_sz) - rational(1));
+    expr* lia_h = fresh_var(rational::power_of_two(sz_arg-i-1) - rational(1));
+
+    expr* mul1 = m_arith_util.mk_mul(m_arith_util.mk_numeral(rational::power_of_two(i+1), true), lia_h);
+    expr* mul2 = m_arith_util.mk_mul(m_arith_util.mk_numeral(rational::power_of_two(j), true), lia_m);
+    expr* add = m_arith_util.mk_add(mul1, mul2, lia_l);
+    
+    add_side_condition(add, rational::power_of_two(sz_arg) - rational(1)); // x_t1
+    result = add_side_condition(lia_m, rational::power_of_two(new_sz) - rational(1)); // x_t
+    m_bv2sz.insert(result, new_sz);
+    TRACE("bv2lia", tout << "inserted " << mk_pp(result, m()) << " -> " << new_sz << std::endl;);
+    TRACE("bv2lia", tout << "reduce_extract result: " << mk_pp(result, m()) << std::endl;);
+}
+
 void bv2lia_rewriter_cfg::reduce_badd(expr * arg1, expr * arg2, expr_ref & result) {
     //TRACE("bv2lia", tout << "mk_badd: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
     SASSERT(m_arith_util.is_int(arg1));
@@ -242,11 +318,11 @@ void bv2lia_rewriter_cfg::reduce_badd(expr * arg1, expr * arg2, expr_ref & resul
     expr* lia_sigma = fresh_var(rational(1));
 
     expr* mul = m_arith_util.mk_mul(m_arith_util.mk_numeral(rational::power_of_two(sz_arg1), true), lia_sigma);
-    expr* sub = m_arith_util.mk_sub(arg2, mul);
-    expr* add = m_arith_util.mk_add(arg1, sub);
+    expr* add = m_arith_util.mk_add(arg1, arg2);
+    expr* sub = m_arith_util.mk_sub(add, mul);
 
     // TODO add to all the arithmetic operations
-    result = add_side_condition(add, rational::power_of_two(sz_arg1) - rational(1));
+    result = add_side_condition(sub, rational::power_of_two(sz_arg1) - rational(1));
     m_bv2sz.insert(result, sz_arg1);
     TRACE("bv2lia", tout << "inserted " << mk_pp(result, m()) << " -> " << sz_arg1 << std::endl;);
     TRACE("bv2lia", tout << "reduce_badd result: " << mk_pp(result, m()) << std::endl;);
@@ -318,6 +394,34 @@ void bv2lia_rewriter_cfg::reduce_uleq(expr * arg1, expr * arg2, expr_ref & resul
     TRACE("bv2lia", tout << "reduce_bvule result: " << mk_pp(result, m()) << std::endl;);
 }
 
+void bv2lia_rewriter_cfg::reduce_sleq(expr * arg1, expr * arg2, expr_ref & result) {
+    //TRACE("bv2lia", tout << "mk_uleq: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+    SASSERT(m_arith_util.is_int(arg1));
+    SASSERT(m_arith_util.is_int(arg2));
+
+    unsigned sz_arg;
+    if (!m_bv2sz.find(arg1, sz_arg)) {
+        TRACE("bv2lia", tout << "not found: " << mk_pp(arg1, m()) << std::endl;);
+        SASSERT(false);
+    }
+    TRACE("bv2lia", tout << "retrieved size: " << sz_arg << std::endl;);
+    // TODO assert arg1 sz == arg2 sz
+
+    expr* lower = m_arith_util.mk_numeral(rational::power_of_two(sz_arg-1), true);
+    expr* upper = m_arith_util.mk_numeral(rational::power_of_two(sz_arg-1) - rational(1), true);
+
+    expr* cond1 = m().mk_and(m_arith_util.mk_le(arg1, upper),
+                             m_arith_util.mk_le(arg2, upper));
+    expr* cond2 = m().mk_and(m_arith_util.mk_ge(arg1, lower),
+                             m_arith_util.mk_ge(arg2, lower));
+    expr* cond = m().mk_or(cond1, cond2);
+    expr* then_expr = m_arith_util.mk_le(arg1, arg2);
+    expr* else_expr = m_arith_util.mk_ge(arg1, lower);
+    result = m().mk_ite(cond, then_expr, else_expr);
+    TRACE("bv2lia", tout << "reduce_bvsle result: " << mk_pp(result, m()) << std::endl;);
+}
+
+// TODO complement?
 void bv2lia_rewriter_cfg::reduce_bv_num(func_decl * arg1, expr_ref & result) {
     //TRACE("bv2lia", tout << "reduce_bv_num:" << val << std::endl;);
     rational v  = arg1->get_parameter(0).get_rational();

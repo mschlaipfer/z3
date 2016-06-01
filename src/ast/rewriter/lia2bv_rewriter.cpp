@@ -79,9 +79,11 @@ br_status lia2bv_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
 
     if (m().is_eq(f)) {
         SASSERT(num == 2);
+        // TODO what is going on here?
         if (m_arith_util.is_int(args[0])) {
-            // TODO bit-width from context
-            reduce_eq(args[0], args[1], 8, result);
+            unsigned sz;
+            beta_sz(args[0], args[1], sz);
+            reduce_eq(args[0], args[1], sz, result);
             return BR_DONE;
         }
         return BR_FAILED;
@@ -124,6 +126,15 @@ br_status lia2bv_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
             beta_sz(args[0], args[1], sz);
             reduce_mul(args[0], args[1], sz, result);
             return BR_DONE;
+        case OP_DIV:
+            TRACE("lia2bv", tout << "div not supported" << std::endl;);
+            NOT_IMPLEMENTED_YET();
+            /*
+            beta_sz(args[0], args[1], sz);
+            reduce_div(args[0], args[1], sz, result);
+            return BR_DONE;
+            */
+            return BR_FAILED;
         case OP_LE:
             SASSERT(num == 2);
             beta_sz(args[0], args[1], sz);
@@ -185,6 +196,7 @@ void lia2bv_rewriter_cfg::beta_sz(expr * arg1, expr * arg2, unsigned & sz) {
     // both not numeral
     // TODO round max(arg1, arg2) to next highest power of two and then log_2
     sz = 16;
+    NOT_IMPLEMENTED_YET();
 }
 
 void lia2bv_rewriter_cfg::beta(expr * t, unsigned sz, expr_ref & result) {
@@ -241,6 +253,22 @@ void lia2bv_rewriter_cfg::reduce_mul(expr * arg1, expr * arg2, unsigned sz, expr
     result = m_bv_util.mk_bv_mul(bv_arg1, bv_arg2);
     TRACE("lia2bv", tout << "reduce_mul: " << mk_pp(result, m()) << std::endl;);
 }
+
+/*
+void lia2bv_rewriter_cfg::reduce_div(expr * arg1, expr * arg2, unsigned sz, expr_ref & result) {
+    TRACE("lia2bv", tout << "reduce_div: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
+
+    expr_ref bv_arg1(m());
+    beta(arg1, sz, bv_arg1);
+
+    expr_ref bv_arg2(m());
+    beta(arg2, sz, bv_arg2);
+
+    TRACE("lia2bv", tout << "reduce_div: " << mk_pp(bv_arg1, m()) << ", " << mk_pp(bv_arg2, m()) << std::endl;);
+    result = m_bv_util.mk_bv_div(bv_arg1, bv_arg2);
+    TRACE("lia2bv", tout << "reduce_div: " << mk_pp(result, m()) << std::endl;);
+}
+*/
 
 void lia2bv_rewriter_cfg::reduce_le(expr * arg1, expr * arg2, unsigned sz, expr_ref & result) {
     TRACE("lia2bv", tout << "reduce_le: " << mk_pp(arg1, m()) << ", " << mk_pp(arg2, m()) << std::endl;);
