@@ -96,6 +96,20 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
             SASSERT(num == 2);
             reduce_uleq(args[0], args[1], result);
             return BR_DONE;
+        case OP_UGT:
+            SASSERT(num == 2);
+            reduce_uleq(args[0], args[1], result);
+            result = m().mk_not(result);
+            return BR_DONE;
+        case OP_UGEQ:
+            SASSERT(num == 2);
+            reduce_uleq(args[1], args[0], result);
+            return BR_DONE;
+        case OP_ULT:
+            SASSERT(num == 2);
+            reduce_uleq(args[1], args[0], result);
+            result = m().mk_not(result);
+            return BR_DONE;
         case OP_SLEQ:
             SASSERT(num == 2);
             reduce_sleq(args[0], args[1], result);
@@ -116,11 +130,13 @@ br_status bv2lia_rewriter_cfg::reduce_app(func_decl * f, unsigned num, expr * co
             return BR_DONE;
         case OP_BADD:
             // TODO support varargs?
+            SASSERT(num == 2);
             reduce_badd(args[0], args[1], result);
             m_lia2bv.insert(result, stack_el);
             return BR_DONE;
         case OP_BMUL:
             // TODO support varargs?
+            SASSERT(num == 2);
             reduce_mul(f, args[0], args[1], result);
             m_lia2bv.insert(result, stack_el);
             return BR_DONE;
